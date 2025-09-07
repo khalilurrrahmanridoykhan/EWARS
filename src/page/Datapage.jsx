@@ -1,12 +1,20 @@
 import React, { useRef, useState } from "react";
-import { FaFileCsv, FaFileArchive, FaLink, FaShareAlt, FaEye, FaEllipsisV, FaEdit, FaTrash } from "react-icons/fa";
+import { FaFileCsv, FaFileArchive, FaLink, FaShareAlt, FaEye, FaEllipsisV, FaEdit, FaTrash, FaFileExcel } from "react-icons/fa";
 import { toast } from "sonner";
+import { MdOutlinePublic } from "react-icons/md";
+import { FaDatabase } from "react-icons/fa";
 
 const demoData = [
-    { title: "Demo Row 1", type: "Xlsx file", modified: "2025-09-07" },
-    { title: "Demo Row 2", type: "Shapefile", modified: "2025-09-06" },
-    { title: "Demo Row 3", type: "API link", modified: "2025-09-05" },
-    { title: "Demo Row 4", type: "Shapefile", modified: "2025-09-04" },
+    { title: "MalariaData.xlsx", type: "xlsx", modified: "2025-09-07" },
+    { title: "upazila.zip", type: "shapefile", modified: "2025-09-06" },
+    { title: "MIS API", type: "api", modified: "2025-09-05" },
+    { title: "Village.zip", type: "shapefile", modified: "2025-09-04" },
+    { title: "MalariaData.xlsx", type: "xlsx", modified: "2025-09-07" },
+    { title: "upazila.zip", type: "shapefile", modified: "2025-09-06" },
+    { title: "MIS API", type: "api", modified: "2025-09-05" },
+    { title: "Village.zip", type: "shapefile", modified: "2025-09-04" },
+    { title: "MIS API", type: "api", modified: "2025-09-05" },
+    { title: "Village.zip", type: "shapefile", modified: "2025-09-04" },
 ];
 
 
@@ -18,6 +26,20 @@ export default function DataPage() {
         if (!data || (typeof data === "string" && !data)) alert("No file or URL selected");
         else alert(`Uploading "${typeof data === "string" ? data : data.name}" (simulated)`);
     };
+
+    const getTypeIcon = (type) => {
+        switch (type.toLowerCase()) {
+            case "xlsx":
+                return <FaFileExcel className="text-green-600 w-5 h-5" />;
+            case "shapefile":
+                return <FaFileArchive className="text-yellow-600 w-5 h-5" />;
+            case "api":
+                return <FaDatabase className="text-blue-600 w-5 h-5" />;
+            default:
+                return <FaFileArchive className="text-gray-500 w-5 h-5" />;
+        }
+    };
+
 
     return (
         <div className="flex flex-col lg:flex-row  bg-gray-50">
@@ -58,18 +80,37 @@ export default function DataPage() {
                     </thead>
                     <tbody>
                         {demoData.map((row, idx) => (
-                            <tr key={idx} className="border-t hover:bg-blue-50 group relative">
+                            <tr
+                                key={idx}
+                                className="border-t hover:bg-blue-50 group relative"
+                            >
                                 <td className="px-4 py-3">{row.title}</td>
-                                <td className="px-4 py-3">{row.type}</td>
+                                <td className="px-4 py-3 flex items-center gap-2">
+                                    {getTypeIcon(row.type)}
+                                    <span className="capitalize">{row.type}</span>
+                                </td>
                                 <td className="px-4 py-3">{row.modified}</td>
+
                                 {/* Share Button */}
                                 <td className="px-2 py-3 text-center">
-                                    <button className="text-blue-500 hover:text-blue-700" title="Share"><FaShareAlt className="w-6 h-6" /></button>
+                                    <button
+                                        className="text-blue-500 hover:text-blue-700"
+                                        title="Share"
+                                    >
+                                        <MdOutlinePublic className="w-5 h-5" />
+                                    </button>
                                 </td>
+
                                 {/* Preview Button */}
                                 <td className="px-2 py-3 text-center">
-                                    <button className="text-green-500 hover:text-green-700" title="Preview"><FaEye className="w-6 h-6" /></button>
+                                    <button
+                                        className="text-green-500 hover:text-green-700"
+                                        title="Preview"
+                                    >
+                                        <FaEye className="w-5 h-5" />
+                                    </button>
                                 </td>
+
                                 {/* Actions Dropdown */}
                                 <td className="px-2 py-3 text-center relative">
                                     <button
@@ -83,10 +124,22 @@ export default function DataPage() {
                                             className="absolute right-0 top-8 z-50 bg-white border border-gray-200 shadow-md rounded w-28 text-left"
                                             onMouseLeave={() => setMenuOpen(null)}
                                         >
-                                            <button className="flex items-center gap-2 px-4 py-2 w-full hover:bg-gray-100 text-sm text-gray-700" onClick={() => { alert('Edit clicked'); setMenuOpen(null); }}>
+                                            <button
+                                                className="flex items-center gap-2 px-4 py-2 w-full hover:bg-gray-100 text-sm text-gray-700"
+                                                onClick={() => {
+                                                    alert("Edit clicked");
+                                                    setMenuOpen(null);
+                                                }}
+                                            >
                                                 <FaEdit /> Edit
                                             </button>
-                                            <button className="flex items-center gap-2 px-4 py-2 w-full hover:bg-gray-100 text-sm text-red-600" onClick={() => { alert('Delete clicked'); setMenuOpen(null); }}>
+                                            <button
+                                                className="flex items-center gap-2 px-4 py-2 w-full hover:bg-gray-100 text-sm text-red-600"
+                                                onClick={() => {
+                                                    alert("Delete clicked");
+                                                    setMenuOpen(null);
+                                                }}
+                                            >
                                                 <FaTrash /> Delete
                                             </button>
                                         </div>
