@@ -46,15 +46,21 @@ export default function DataPage() {
             {/* Upload Panel */}
             <div className="lg:w-1/3 w-full p-4 flex flex-col bg-blue-50 border-r">
                 <FileUploadPanel
-                    title="Upload Data File (CSV/XLSX)"
+                    title="Upload Case File (CSV/XLSX)"
                     accept=".csv,.xlsx"
-                    icon={<FaFileCsv size={22} />}
+                    icon={<FaFileCsv size={22} className="text-[#278039]" />}
+                    onUpload={handleUpload}
+                />
+                <FileUploadPanel
+                    title="Upload Climate File (CSV/XLSX)"
+                    accept=".csv,.xlsx"
+                    icon={<FaFileCsv size={22} className="text-[#278039]" />}
                     onUpload={handleUpload}
                 />
                 <FileUploadPanel
                     title="Upload Shapefile (ZIP)"
                     accept=".zip"
-                    icon={<FaFileArchive size={22} />}
+                    icon={<FaFileArchive size={22} className="text-[#d18800]" />}
                     onUpload={handleUpload}
                 />
                 <FileUploadPanel

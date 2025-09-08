@@ -1,7 +1,8 @@
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import AdminLayout from "./Admin/AdminLayout";
-import PageNotFound from "./Page/PageNotFound";
+import PageNotFound from "./page/PagenotFound";
 import DataPage from "./page/Datapage";
+import Malaria from "./page/Malaria";
 
 
 
@@ -19,6 +20,7 @@ function App() {
         {userRole === 1 && (
           <Route path="/" element={<AdminLayout />}>
             <Route path="/data" element={<DataPage />} />
+            <Route path="/diseases/malaria" element={<Malaria />} />
             <Route path="*" element={<PageNotFound />} />
           </Route>
         )}

@@ -56,7 +56,7 @@ export default function Header() {
     });
 
     return (
-        <header className="bg-blue-700 text-white shadow-md">
+        <header className="bg-[#004bad] text-white shadow-md">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
                 <div className="font-bold text-xl tracking-wide">CSD EWARS</div>
 
@@ -70,14 +70,14 @@ export default function Header() {
                                         setDropdownOpen(dropdownOpen === item.name ? null : item.name)
                                     }
                                     className={`px-4 py-2 rounded-md transition ${activeParent === item.name
-                                        ? "bg-green-500 text-white"
+                                        ? "bg-white text-black"
                                         : "hover:bg-blue-600"
                                         } cursour-pointer`}
                                 >
                                     {item.name}
                                 </button>
                                 {dropdownOpen === item.name && (
-                                    <div className="absolute mt-2 bg-white text-black rounded-lg shadow-lg w-48 z-50">
+                                    <div className="absolute z-[999] mt-2 bg-white text-black rounded-lg shadow-lg w-48 ">
                                         {item.children.map((child) => (
                                             <Link
                                                 key={child.name}
@@ -99,7 +99,7 @@ export default function Header() {
                                 key={item.name}
                                 to={item.href}
                                 className={`px-4 py-2 rounded-md cursor-pointer transition ${activeParent === item.name
-                                    ? "bg-green-500 text-white"
+                                    ? "bg-white text-black"
                                     : "hover:bg-blue-600"
                                     }`}
                             >
