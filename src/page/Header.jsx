@@ -28,6 +28,14 @@ const navItems = [
             { name: "Upazila", href: "/prediction/upazila" },
         ],
     },
+    {
+        name: "Monitor",
+        children: [
+            { name: "Malaria", href: "/monitor/Malaria" },
+            { name: "Dengue", href: "/monitor/Dengue" },
+            { name: "AWD", href: "/monitor/awd" },
+        ],
+    },
     { name: "Alert", href: "/alert" },
 ];
 
