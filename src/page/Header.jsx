@@ -28,6 +28,7 @@ const navItems = [
             { name: "Upazila", href: "/prediction/upazila" },
         ],
     },
+    { name: "Alert", href: "/alert" },
     {
         name: "Monitor",
         children: [
@@ -36,7 +37,7 @@ const navItems = [
             { name: "AWD", href: "/monitor/awd" },
         ],
     },
-    { name: "Alert", href: "/alert" },
+    { name: "CHW", href: "/chw_cds" },
 ];
 
 export default function Header() {

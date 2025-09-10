@@ -3,6 +3,7 @@ import AdminLayout from "./Admin/AdminLayout";
 import PageNotFound from "./page/PagenotFound";
 import DataPage from "./page/Datapage";
 import Malaria from "./page/Malaria";
+import ChwCds from "./page/ChwCds";
 
 
 
@@ -22,6 +23,7 @@ function App() {
             <Route path="/data" element={<DataPage />} />
             <Route path="/diseases/malaria" element={<Malaria />} />
             <Route path="*" element={<PageNotFound />} />
+            <Route path="/chw_cds" element={<ChwCds />} />
           </Route>
         )}
       </Routes>
