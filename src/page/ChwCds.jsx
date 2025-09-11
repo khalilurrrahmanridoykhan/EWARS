@@ -9,6 +9,11 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 
+import { MapContainer, TileLayer, CircleMarker } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import MarkerClusterGroup from "react-leaflet-markercluster";
+
 import {
     LineChart, Line,
     BarChart, Bar,
@@ -535,6 +540,17 @@ function ChwCds() {
     const metrics = useMemo(() => calculateMetrics(filteredSubmissions), [filteredSubmissions]);
     console.log("metrics", metrics);
 
+    const points = useMemo(
+        () => filteredSubmissions
+            .filter(x => x.latitude && x.longitude)
+            .map(x => ({
+                ...x,
+                lat: x.latitude,
+                lng: x.longitude,
+            })),
+        [filteredSubmissions]
+    );
+
     // const organizationOptions = useMemo(
     //     () => getUnique(filteredSubmissions.map(sub => sub.organization).filter(Boolean)),
     //     [filteredSubmissions]
@@ -676,54 +692,101 @@ function ChwCds() {
                 </div>
             </div>
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 auto-rows-[200px]">
-                <LineCard title="Submissions Over Time" data={metrics.submissionsOverTime} />
+                <LineCard
+                    title="Submissions Over Time"
+                    data={metrics.submissionsOverTime}
+                    stat={metrics.totalSubmissions}
+                />
 
-                <PieCard
+                <MultiPieCard
                     title="Suspected Ratio"
                     data={metrics.suspectedRatioPie}
-                    colors={["#3296FA", "#FF6361"]}
+                    colors={["#FF6361", "#005fbe", "#d9534f"]}
+                    stat={`${metrics.percentSuspected}%`}
                 />
 
                 <PieCard
                     title="Referral Rate"
                     data={metrics.referralRatePie}
-                    colors={["#60B76D", "#FF6361"]}
+                    colors={["#005fbe", "#FF6361"]}
+                    stat={`${metrics.referralRate}%`}
                 />
 
                 <MultiPieCard
                     title="Gender Distribution"
-                    data={metrics.genderPie} // 3 slices
+                    data={metrics.genderPie}
                     colors={["#3296FA", "#FF6361", "#C50080"]}
+                    stat={metrics.genderPie.reduce((sum, d) => sum + d.value, 0)}
                 />
+
+                <div className="row-span-2 md:col-span-2 md:row-span-2 lg:col-span-2 lg:row-span-2">
+                    <DashboardCard title="Map">
+                        <div className="w-full h-full" style={{ minHeight: 350 }}>
+                            <PatientMap points={points} />
+                        </div>
+                    </DashboardCard>
+                </div>
 
                 <MultiPieCard
                     title="Facility Type"
-                    data={metrics.facilityTypePie} // 2–5 slices
+                    data={metrics.facilityTypePie}
                     colors={["#3296FA", "#ffaf42", "#d9534f"]}
+                    stat={metrics.facilityTypePie.reduce((sum, d) => sum + d.value, 0)}
                 />
 
                 <PieCard
                     title="Bednet Usage"
                     data={metrics.bednetPie}
-                    colors={["#60B76D", "#FABB57"]}
+                    colors={["#005fbe", "#FF6361"]}
+                    stat={`${metrics.bednetPercent}%`}
                 />
 
-                <BarCard
+                <HorizontalBarCard
                     title="Suspected Disease Count"
                     data={metrics.suspectedDiseaseBar}
                     colors={["#FF6361", "#3296FA", "#60B76D"]}
+                    stat={metrics.suspectedDiseaseBar.reduce((sum, d) => sum + d.value, 0)}
                 />
 
-                <BarCard
+                <HorizontalBarCard
                     title="Latrine Type"
                     data={metrics.latrineBar}
-                    barColor="#3296FA"
+                    colors={["#3296FA", "#60B76D"]}
+                    stat={metrics.latrineBar.reduce((sum, d) => sum + d.value, 0)}
                 />
 
-                <BarCard
+                <HorizontalBarCard
                     title="Disaster Types"
                     data={metrics.disasterTypeBar}
-                    barColor="#FFB300"
+                    colors={["#FFB300", "#FF6361", "#3296FA", "#60B76D"]}
+                    stat={metrics.disasterTypeBar.reduce((sum, d) => sum + d.value, 0)}
+                />
+                <PieCard
+                    title="Handwashing Facilities"
+                    data={metrics.washPie}
+                    colors={["#FF6361", "#005fbe", "#d9534f"]}
+                    stat={`${metrics.handwashPercent}%`}
+                />
+
+                <PieCard
+                    title="Mosquito Breeding Sites"
+                    data={metrics.mosquitoBreedPie}
+                    colors={["#FF6361", "#005fbe", "#d9534f"]}
+                    stat={`${metrics.mosquitoBreedPercent}%`}
+                />
+
+                <PieCard
+                    title="Mosquito Larvae Found"
+                    data={metrics.mosquitoLarvaePie}
+                    colors={["#FF6361", "#005fbe", "#d9534f"]}
+                    stat={`${metrics.mosquitoLarvaePercent}%`}
+                />
+
+                <PieCard
+                    title="Disaster in Last Week"
+                    data={metrics.disasterWeekPie}
+                    colors={["#FF6361", "#005fbe", "#d9534f"]}
+                    stat={`${metrics.disasterWeekPercent}%`}
                 />
 
             </div>
@@ -799,6 +862,24 @@ function flattenSubmission(x) {
     // Already diagnosed cases, only used for non-suspected
     const alreadyDiagnosed = direct["information_of_already_identified_patient_s_"] || {};
 
+    const locationStr = suspectedPatientInfo.location;
+    let latitude = null, longitude = null;
+    if (locationStr && typeof locationStr === "string") {
+        // Accepts "lat lng ..." or "lng lat ..."
+        // Try "lat lng" order first
+        const [a, b] = locationStr.split(/\s+/);
+        if (!isNaN(Number(a)) && !isNaN(Number(b))) {
+            // Most probable: first is lat, second is lng
+            latitude = Number(a);
+            longitude = Number(b);
+            // If out-of-range, try swap
+            if (Math.abs(latitude) > 90 && Math.abs(longitude) <= 90) {
+                [latitude, longitude] = [longitude, latitude];
+            }
+        }
+    }
+
+
     // Use only the new named groupings for flattening.
     return {
         division: suspectedPatientInfo.division,
@@ -850,7 +931,10 @@ function flattenSubmission(x) {
         // Dates
         day: direct.end ? direct.end.slice(0, 10) : (healthWorkerInfo.date || direct.date || null),
         date: direct.date,
-        remarks: direct.remarks
+        remarks: direct.remarks,
+        location: locationStr,
+        latitude,
+        longitude,
     };
 }
 
@@ -968,19 +1052,24 @@ function extractHierarchy(submissions) {
 // }
 
 
-const DashboardCard = ({ title, children, barColor = "#005fbe" }) => (
+const DashboardCard = ({ title, stat, children, barColor = "#005fbe" }) => (
     <div className="rounded-md shadow border border-blue-800 flex flex-col w-full h-full bg-white overflow-hidden">
         {/* Colored Title Bar */}
         <div
             style={{ background: barColor }}
-            className="px-3 py-2"
+            className="px-3 py-2 flex items-center justify-between"
         >
             <h3 className="text-base font-bold text-white tracking-tight">
                 {title}
             </h3>
+            {stat && (
+                <span className="text-sm font-semibold text-white opacity-90">
+                    {stat}
+                </span>
+            )}
         </div>
 
-        {/* Chart/Content Area: fills available space */}
+        {/* Chart/Content Area */}
         <div className="flex-1 flex items-center justify-center w-full h-full min-h-[150px]">
             <div className="w-full h-full flex items-center justify-center">
                 {children}
@@ -990,9 +1079,10 @@ const DashboardCard = ({ title, children, barColor = "#005fbe" }) => (
 );
 
 
-function PieCard({ title, data, colors }) {
+
+function PieCard({ title, data, colors, stat }) {
     return (
-        <DashboardCard title={title}>
+        <DashboardCard title={title} stat={stat}>
             <div style={{ width: "100%", height: 250, padding: 10 }}>
                 <ResponsiveContainer width="100%" height="100%">
                     <PieChart>
@@ -1001,10 +1091,10 @@ function PieCard({ title, data, colors }) {
                             dataKey="value"
                             cx="50%"
                             cy="50%"
-                            innerRadius={0}          // full pie
-                            outerRadius="45%"        // fill container
+                            innerRadius={0}
+                            outerRadius="45%"
                             label={({ name, value }) => `${name} (${value})`}
-                            labelLine={true}         // show lines to labels
+                            labelLine={true}
                         >
                             {data.map((entry, index) => (
                                 <Cell key={index} fill={colors[index % colors.length]} />
@@ -1018,12 +1108,9 @@ function PieCard({ title, data, colors }) {
     );
 }
 
-function MultiPieCard({ title, data, colors }) {
-    // Calculate radius based on number of slices
-    // const outerRadius = Math.max(40, 100 - data.length * 10);
-
+function MultiPieCard({ title, data, colors, stat }) {
     return (
-        <DashboardCard title={title}>
+        <DashboardCard title={title} stat={stat}>
             <div className="flex flex-col items-center w-full h-full p-4">
                 <div style={{ width: "100%", height: 150 }}>
                     <ResponsiveContainer width="100%" height="100%">
@@ -1036,7 +1123,7 @@ function MultiPieCard({ title, data, colors }) {
                                 innerRadius={0}
                                 outerRadius={50}
                                 paddingAngle={2}
-                                label={false} // hide labels on pie itself
+                                label={false}
                             >
                                 {data.map((entry, index) => (
                                     <Cell key={index} fill={colors[index % colors.length]} />
@@ -1047,7 +1134,7 @@ function MultiPieCard({ title, data, colors }) {
                     </ResponsiveContainer>
                 </div>
 
-                {/* Legend below pie */}
+                {/* Legend */}
                 <div className="flex flex-wrap justify-center gap-2 mt-2 text-xs">
                     {data.map((entry, index) => (
                         <div key={index} className="flex items-center gap-1">
@@ -1067,12 +1154,12 @@ function MultiPieCard({ title, data, colors }) {
 
 
 // Bar chart card
-function BarCard({ title, data, colors = ["#005fbe"] }) {
+function BarCard({ title, data, colors = ["#005fbe"], stat }) {
     return (
-        <DashboardCard title={title}>
+        <DashboardCard title={title} stat={stat}>
             <div style={{ width: "100%", height: 150 }}>
                 <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={data} margin={{ top: 20, right: 10, bottom: 10, left: 0 }}>
+                    <BarChart data={data} margin={{ top: 20, right: 0, bottom: 10, left: 0 }}>
                         <XAxis dataKey="name" tickLine={false} axisLine={false} />
                         <YAxis allowDecimals={false} />
                         <Tooltip />
@@ -1089,10 +1176,54 @@ function BarCard({ title, data, colors = ["#005fbe"] }) {
     );
 }
 
-// Line chart card
-function LineCard({ title, data, lineColor = "#005fbe" }) {
+
+function HorizontalBarCard({ title, data, colors = ["#005fbe"], stat }) {
     return (
-        <DashboardCard title={title}>
+        <DashboardCard title={title} stat={stat}>
+            <div className="flex flex-col items-center w-full h-full p-4">
+                <div style={{ width: "100%", height: 250 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <BarChart
+                            data={data}
+                            layout="vertical"
+                            margin={{ top: 10, right: 30, left: 10, bottom: 10 }}
+                            barCategoryGap={15}
+                        >
+                            <XAxis type="number" allowDecimals={false} hide />
+                            <YAxis dataKey="name" type="category" width={0} tick={false} axisLine={false} />
+                            <Tooltip />
+                            <Bar dataKey="value" radius={[6, 6, 6, 6]} barSize={28}>
+                                {data.map((entry, index) => (
+                                    <Cell key={index} fill={colors[index % colors.length]} />
+                                ))}
+                                <LabelList dataKey="value" position="insideRight" className="text-xs fill-white" />
+                            </Bar>
+                        </BarChart>
+                    </ResponsiveContainer>
+                </div>
+
+                {/* Labels */}
+                <div className="flex flex-wrap justify-center gap-3 mt-3 text-xs">
+                    {data.map((entry, index) => (
+                        <div key={index} className="flex items-center gap-1">
+                            <span
+                                className="w-3 h-3 rounded-sm"
+                                style={{ backgroundColor: colors[index % colors.length] }}
+                            />
+                            <span className="text-[8px]">{entry.name}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </DashboardCard>
+    );
+}
+
+
+
+function LineCard({ title, data, lineColor = "#005fbe", stat }) {
+    return (
+        <DashboardCard title={title} stat={stat}>
             <ResponsiveContainer width="99%" height={150}>
                 <LineChart data={data}>
                     <XAxis dataKey="name" />
@@ -1102,5 +1233,59 @@ function LineCard({ title, data, lineColor = "#005fbe" }) {
                 </LineChart>
             </ResponsiveContainer>
         </DashboardCard>
+    );
+}
+
+
+function PatientMap({ points }) {
+    return (
+        <MapContainer
+            center={[23.75, 90.36]}
+            zoom={7}
+            style={{ width: "100%", height: "100%" }}
+            scrollWheelZoom={true}
+        >
+            <TileLayer
+                attribution='&copy; OpenStreetMap contributors & CartoDB'
+                url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
+            />
+
+            <MarkerClusterGroup
+                iconCreateFunction={(cluster) => {
+                    const count = cluster.getChildCount();
+                    const size = 20 + Math.log(count) * 10; // scale bubble by count
+                    return L.divIcon({
+                        html: `<div style="
+              background: rgba(255,78,46,0.6);
+              border: 2px solid #fff;
+              border-radius: 50%;
+              width:${size}px;
+              height:${size}px;
+              display:flex;
+              align-items:center;
+              justify-content:center;
+              color:#fff;
+              font-size:12px;
+              font-weight:bold;
+            ">${count}</div>`,
+                        className: "custom-cluster-icon",
+                        iconSize: [size, size],
+                    });
+                }}
+            >
+                {points.map((pt, i) => (
+                    <CircleMarker
+                        key={i}
+                        center={[pt.lat, pt.lng]}
+                        radius={4 + Math.log(Math.max(Number(pt.age) || 1, 1))}
+                        fillColor="#ff4e2e"
+                        color="#fff"
+                        weight={1}
+                        opacity={1}
+                        fillOpacity={0.6}
+                    />
+                ))}
+            </MarkerClusterGroup>
+        </MapContainer>
     );
 }
