@@ -9,6 +9,14 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 
+import {
+    LineChart, Line,
+    BarChart, Bar,
+    PieChart, Pie, Cell,
+    XAxis, YAxis, Tooltip, Legend, LabelList, ResponsiveContainer
+} from 'recharts';
+
+
 function ChwCds() {
     const [allData, setAllData] = useState(null);
     const [error, setError] = useState("");
@@ -223,23 +231,59 @@ function ChwCds() {
     );
 
     const organizationOptions = useMemo(() =>
-        h && h.allRows ? filterOptions(h.allRows, ['division', 'district', 'upazila', 'union', 'ward', 'area', 'organization'], filterState) : [],
-        [h, filterState]
+        h && h.allRows
+            ? getUnique(
+                h.allRows
+                    .filter(row =>
+                        (!selectedDivisions.length || selectedDivisions.includes(row.division)) &&
+                        (!selectedDistricts.length || selectedDistricts.includes(row.district)) &&
+                        (!selectedUpazilas.length || selectedUpazilas.includes(row.upazila)) &&
+                        (!selectedUnions.length || selectedUnions.includes(row.union)) &&
+                        (!selectedWards.length || selectedWards.includes(row.ward)) &&
+                        (!selectedAreas.length || selectedAreas.includes(row.area))
+                    )
+                    .map(row => row.organization)
+            )
+            : [],
+        [h, selectedDivisions, selectedDistricts, selectedUpazilas, selectedUnions, selectedWards, selectedAreas]
     );
 
     const diseaseOptions = useMemo(() =>
-        h && h.allRows ? getUnique(
-            h.allRows
-                .filter(row =>
-                    (!selectedDivisions.length || selectedDivisions.includes(row.division)) &&
-                    (!selectedDistricts.length || selectedDistricts.includes(row.district)) &&
-                    (!selectedUpazilas.length || selectedUpazilas.includes(row.upazila)) &&
-                    (!selectedUnions.length || selectedUnions.includes(row.union)) &&
-                    (!selectedWards.length || selectedWards.includes(row.ward)) &&
-                    (!selectedAreas.length || selectedAreas.includes(row.area))
-                )
-                .flatMap(row => row.disease)
-        ) : [], [h, selectedDivisions, selectedDistricts, selectedUpazilas, selectedUnions, selectedWards, selectedAreas]);
+        h && h.allRows
+            ? getUnique(
+                h.allRows
+                    .filter(row =>
+                        (!selectedDivisions.length || selectedDivisions.includes(row.division)) &&
+                        (!selectedDistricts.length || selectedDistricts.includes(row.district)) &&
+                        (!selectedUpazilas.length || selectedUpazilas.includes(row.upazila)) &&
+                        (!selectedUnions.length || selectedUnions.includes(row.union)) &&
+                        (!selectedWards.length || selectedWards.includes(row.ward)) &&
+                        (!selectedAreas.length || selectedAreas.includes(row.area)) &&
+                        (!selectedOrganizations.length || selectedOrganizations.includes(row.organization))
+                    )
+                    .flatMap(row => row.disease)
+            )
+            : [],
+        [h, selectedDivisions, selectedDistricts, selectedUpazilas, selectedUnions, selectedWards, selectedAreas, selectedOrganizations]
+    );
+
+    useEffect(() => {
+        // Only auto-select if the options list actually changed (new options)
+        setSelectedOrganizations(prev =>
+            organizationOptions.length && !prev.length
+                ? organizationOptions
+                : prev.filter(v => organizationOptions.includes(v))
+        );
+    }, [organizationOptions]);
+
+    // Auto-select all visible disease options
+    useEffect(() => {
+        setSelectedDiseases(prev =>
+            diseaseOptions.length && !prev.length
+                ? diseaseOptions
+                : prev.filter(v => diseaseOptions.includes(v))
+        );
+    }, [diseaseOptions]);
 
     useEffect(() => {
         if (!h || !h.allRows) {
@@ -319,6 +363,187 @@ function ChwCds() {
     useEffect(() => {
         if (minDay && maxDay) setDateRange([minDay, maxDay]);
     }, [minDay, maxDay]);
+
+    function calculateMetrics(submissions) {
+        // Line chart: submissions over time
+        const submissionsPerDay = {};
+        submissions.forEach(row => {
+            if (!row.day) return;
+            submissionsPerDay[row.day] = (submissionsPerDay[row.day] || 0) + 1;
+        });
+        const submissionsOverTime = Object.keys(submissionsPerDay)
+            .sort()
+            .map(day => ({ name: day, value: submissionsPerDay[day] }));
+
+        // Suspected Ratio: Pie and Count
+        let suspected = 0, notSuspected = 0;
+        submissions.forEach(x => {
+            // Support both new and old
+            const suspectedVal =
+                x.suspected_in_the_disease ||
+                x.suspected_in_the_disease_yn ||
+                x.suspected_in_the_disease_yn_new ||
+                (typeof x.suspected_in_the_disease === "string" ? x.suspected_in_the_disease : null);
+            if (suspectedVal === "yes") suspected++;
+            else notSuspected++;
+        });
+
+        // Suspected disease counts (bar)
+        const diseaseCounts = {};
+        submissions.forEach(x => {
+            if (Array.isArray(x.disease)) x.disease.forEach(d => {
+                diseaseCounts[d] = (diseaseCounts[d] || 0) + 1;
+            });
+            else if (x.disease) diseaseCounts[x.disease] = (diseaseCounts[x.disease] || 0) + 1;
+        });
+        const suspectedDiseaseBar = Object.entries(diseaseCounts)
+            .map(([disease, count]) => ({ name: disease, value: count }));
+
+        // Referral Rate (pie)
+        let referredYes = 0, referredNo = 0;
+        submissions.forEach(x => {
+            const referredVal =
+                x.referred ||
+                x.referral ||
+                x.referred_new ||
+                (typeof x.referred === "string" ? x.referred : null);
+            if (referredVal === "yes") referredYes++;
+            else if (referredVal === "no") referredNo++;
+        });
+
+        // Referral facility type (pie)
+        const facilityTypeCounts = {};
+        submissions.forEach(x => {
+            if (x.referral_place) facilityTypeCounts[x.referral_place] = (facilityTypeCounts[x.referral_place] || 0) + 1;
+        });
+        const facilityTypePie = Object.entries(facilityTypeCounts).map(([name, value]) => ({ name, value }));
+
+        // Gender counts (pie)
+        let male = 0, female = 0, pregnant = 0;
+        submissions.forEach(x => {
+            // Handle boolean "pregnent" or "pregnant"
+            if (x.sex === "male") male++;
+            else if (x.sex === "female") female++;
+            if (x.pregnent === "yes" || x.pregnant === "yes") pregnant++;
+        });
+
+        // Bednet use (pie)
+        let bednetYes = 0, bednetNo = 0;
+        submissions.forEach(x => {
+            const val = x.bed_net_use_practice_during_sleep;
+            if (val === "yes") bednetYes++;
+            else if (val === "no") bednetNo++;
+        });
+
+        // Handwashing (pie)
+        let washYes = 0, washNo = 0;
+        submissions.forEach(x => {
+            const val = x.handwashing_practice_with_soap__water;
+            if (val === "yes") washYes++;
+            else if (val === "no") washNo++;
+        });
+
+        // Latrine type (bar)
+        const latrineTypes = {};
+        submissions.forEach(x => {
+            if (x.type_latrine_use) latrineTypes[x.type_latrine_use] = (latrineTypes[x.type_latrine_use] || 0) + 1;
+        });
+        const latrineBar = Object.entries(latrineTypes).map(([name, value]) => ({ name, value }));
+
+        // Mosquito breeding (pie)
+        let breedYes = 0, breedNo = 0;
+        submissions.forEach(x => {
+            const val = x.presence_of_stagnant_water_mosquito_breeding_sites;
+            if (val === "yes") breedYes++;
+            else if (val === "no") breedNo++;
+        });
+
+        // Mosquito larvae (pie)
+        let larvaeYes = 0, larvaeNo = 0;
+        submissions.forEach(x => {
+            // All non-blank, countable larvae status handled
+            const val = x.presence_of_mosquito_larvae;
+            if (val && (val === "yes" || val === "aedes" || val === "others")) larvaeYes++;
+            else if (val === "no") larvaeNo++;
+        });
+
+        // Disaster in last week (pie)
+        let disasterYes = 0, disasterNo = 0;
+        submissions.forEach(x => {
+            const val = x.did_any_disaster_occur_in_last_7_days_;
+            if (val === "yes") disasterYes++;
+            else if (val === "no") disasterNo++;
+        });
+
+        // Disaster type (bar)
+        const disasterTypes = {};
+        submissions.forEach(x => {
+            const types = Array.isArray(x.what_types)
+                ? x.what_types : (typeof x.what_types === "string"
+                    ? x.what_types.split(" ").filter(Boolean) : []);
+            types.forEach(type => { disasterTypes[type] = (disasterTypes[type] || 0) + 1; });
+        });
+        const disasterTypeBar = Object.entries(disasterTypes).map(([name, value]) => ({ name, value }));
+
+        return {
+            // Line
+            submissionsOverTime,
+            // Pie
+            suspectedRatioPie: [
+                { name: "Suspected", value: suspected }, { name: "Not Suspected", value: notSuspected }
+            ],
+            referralRatePie: [
+                { name: "Yes", value: referredYes }, { name: "No", value: referredNo }
+            ],
+            genderPie: [
+                { name: "Male", value: male }, { name: "Female", value: female }, { name: "Pregnant", value: pregnant }
+            ],
+            facilityTypePie,
+            bednetPie: [
+                { name: "Yes", value: bednetYes }, { name: "No", value: bednetNo }
+            ],
+            washPie: [
+                { name: "Yes", value: washYes }, { name: "No", value: washNo }
+            ],
+            mosquitoBreedPie: [
+                { name: "Yes", value: breedYes }, { name: "No", value: breedNo }
+            ],
+            mosquitoLarvaePie: [
+                { name: "Yes", value: larvaeYes }, { name: "No", value: larvaeNo }
+            ],
+            disasterWeekPie: [
+                { name: "Yes", value: disasterYes }, { name: "No", value: disasterNo }
+            ],
+            // Bars
+            suspectedDiseaseBar,
+            latrineBar,
+            disasterTypeBar,
+            // Totals, ratios etc
+            totalSubmissions: submissions.length,
+            percentSuspected: Math.round(100 * suspected / ((suspected + notSuspected) || 1)),
+            referralRate: Math.round(100 * referredYes / ((referredYes + referredNo) || 1)),
+            bednetPercent: Math.round(100 * bednetYes / ((bednetYes + bednetNo) || 1)),
+            handwashPercent: Math.round(100 * washYes / ((washYes + washNo) || 1)),
+            mosquitoBreedPercent: Math.round(100 * breedYes / ((breedYes + breedNo) || 1)),
+            mosquitoLarvaePercent: Math.round(100 * larvaeYes / ((larvaeYes + larvaeNo) || 1)),
+            disasterWeekPercent: Math.round(100 * disasterYes / ((disasterYes + disasterNo) || 1)),
+        };
+    }
+
+
+
+    const metrics = useMemo(() => calculateMetrics(filteredSubmissions), [filteredSubmissions]);
+    console.log("metrics", metrics);
+
+    // const organizationOptions = useMemo(
+    //     () => getUnique(filteredSubmissions.map(sub => sub.organization).filter(Boolean)),
+    //     [filteredSubmissions]
+    // );
+
+    // const diseaseOptions = useMemo(
+    //     () => getUnique(filteredSubmissions.flatMap(sub => sub.disease).filter(Boolean)),
+    //     [filteredSubmissions]
+    // );
 
 
     // if (!h) return <div>Loading...</div>;
@@ -451,49 +676,56 @@ function ChwCds() {
                 </div>
             </div>
             <div className="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 auto-rows-[200px]">
+                <LineCard title="Submissions Over Time" data={metrics.submissionsOverTime} />
 
-                {/* Example small cards */}
-                <DashboardCard title="Total submissions">
-                    <div>Chart here</div>
-                </DashboardCard>
+                <PieCard
+                    title="Suspected Ratio"
+                    data={metrics.suspectedRatioPie}
+                    colors={["#3296FA", "#FF6361"]}
+                />
 
-                <DashboardCard title="Completion Rate">
-                    <div>Pie chart</div>
-                </DashboardCard>
+                <PieCard
+                    title="Referral Rate"
+                    data={metrics.referralRatePie}
+                    colors={["#60B76D", "#FF6361"]}
+                />
 
-                <DashboardCard title="Suspected Ratio">
-                    <div>Bar chart</div>
-                </DashboardCard>
+                <MultiPieCard
+                    title="Gender Distribution"
+                    data={metrics.genderPie} // 3 slices
+                    colors={["#3296FA", "#FF6361", "#C50080"]}
+                />
 
-                <DashboardCard title="Referral Rate">
-                    <div>Pie chart</div>
-                </DashboardCard>
+                <MultiPieCard
+                    title="Facility Type"
+                    data={metrics.facilityTypePie} // 2–5 slices
+                    colors={["#3296FA", "#ffaf42", "#d9534f"]}
+                />
 
-                {/* Map spanning 2 cols and 2 rows */}
-                <div className="row-span-2 md:col-span-2 md:row-span-2 lg:col-span-2 lg:row-span-2">
-                    <DashboardCard title="Map">
-                        <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                            Map goes here
-                        </div>
-                    </DashboardCard>
-                </div>
+                <PieCard
+                    title="Bednet Usage"
+                    data={metrics.bednetPie}
+                    colors={["#60B76D", "#FABB57"]}
+                />
 
-                {/* More cards filling up the grid */}
-                <DashboardCard title="Referred Facility type">
-                    <div>Pie chart</div>
-                </DashboardCard>
+                <BarCard
+                    title="Suspected Disease Count"
+                    data={metrics.suspectedDiseaseBar}
+                    colors={["#FF6361", "#3296FA", "#60B76D"]}
+                />
 
-                <DashboardCard title="Bednet use">
-                    <div>Pie chart</div>
-                </DashboardCard>
+                <BarCard
+                    title="Latrine Type"
+                    data={metrics.latrineBar}
+                    barColor="#3296FA"
+                />
 
-                <DashboardCard title="Hand wash practice">
-                    <div>Pie chart</div>
-                </DashboardCard>
+                <BarCard
+                    title="Disaster Types"
+                    data={metrics.disasterTypeBar}
+                    barColor="#FFB300"
+                />
 
-                <DashboardCard title="Latrine type">
-                    <div>Bar chart</div>
-                </DashboardCard>
             </div>
         </div>
 
@@ -502,16 +734,26 @@ function ChwCds() {
 
 export default ChwCds
 
-const DashboardCard = ({ title, children }) => {
-    return (
-        <div className="bg-white rounded-2xl shadow-md p-4 flex flex-col w-full h-full">
-            <h3 className="text-lg font-semibold text-gray-700 mb-2">{title}</h3>
-            <div className="flex-1 flex items-center justify-center">
-                {children}
-            </div>
-        </div>
-    );
-};
+// const DashboardCard = ({ title, children, barColor = "#005fbe" }) => (
+//     <div className="rounded-md shadow border border-blue-800 flex flex-col w-full h-full bg-white overflow-hidden">
+//         {/* Colored Title Bar */}
+//         <div
+//             style={{ background: barColor }}
+//             className="px-3 py-2"
+//         >
+//             <h3 className="text-base font-bold text-white tracking-tight">
+//                 {title}
+//             </h3>
+//         </div>
+//         {/* Chart/Content Area: fills all, NO extra padding or margin */}
+//         <div className="flex-1 flex items-center justify-center w-full h-full">
+//             <div className="w-full h-full flex items-center justify-center">
+//                 {children}
+//             </div>
+//         </div>
+//     </div>
+// );
+
 
 
 function autoChainSelect(valueList, mapping, allSelected) {
@@ -545,9 +787,76 @@ function getUnique(arr) {
     return Array.from(new Set(arr)).filter(Boolean);
 }
 
-function extractHierarchy(submissions) {
+function flattenSubmission(x) {
+    const direct = x.data || {};
+    // Only use modern group names
+    const referralInfo = direct["referral-related_information"] || {};
+    const healthWorkerInfo = direct["health_worker_s_information"] || {};
+    const healthBehaviour = direct["health_behaviour"] || {};
+    const disasterInfo = direct["disaster-related_information"] || {};
+    const environmentInfo = direct["environmental_related_information_"] || {};
+    const suspectedPatientInfo = direct["suspected_patient-related_information"] || {};
+    // Already diagnosed cases, only used for non-suspected
+    const alreadyDiagnosed = direct["information_of_already_identified_patient_s_"] || {};
 
-    // All levels
+    // Use only the new named groupings for flattening.
+    return {
+        division: suspectedPatientInfo.division,
+        district: suspectedPatientInfo.district,
+        upazila: suspectedPatientInfo.upazila,
+        union: suspectedPatientInfo.union,
+        ward: suspectedPatientInfo.ward,
+        area: suspectedPatientInfo.area,
+        age: suspectedPatientInfo.age,
+        sex: suspectedPatientInfo.sex,
+        preg: suspectedPatientInfo.pregnent || suspectedPatientInfo.pregnant, // pregnancy
+        hh_id: suspectedPatientInfo.hh_id,
+        hh_head_name: suspectedPatientInfo.hh_head_name,
+        mobile_number: suspectedPatientInfo.mobile_number,
+        patient_id_type: suspectedPatientInfo.patient_id_type,
+        suspected_in_the_disease: suspectedPatientInfo.suspected_in_the_disease,
+        suspected_disease: suspectedPatientInfo.suspected_disease,
+        // Splitting suspected disease as array
+        disease: (suspectedPatientInfo.suspected_disease || "").split(" ").filter(Boolean),
+        name_of_the_person_with_suspected_case: suspectedPatientInfo.name_of_the_person_with_suspected_case,
+        user_identification_11_9943_01976848561: suspectedPatientInfo.user_identification_11_9943_01976848561,
+
+        // Org & staff details
+        organization: healthWorkerInfo.organization,
+        designation: healthWorkerInfo.designation_1 || healthWorkerInfo.designation,
+        name_of_staff: healthWorkerInfo.name_of_staff,
+
+        // Referral & hygiene
+        referred: referralInfo.referred,
+        referral_place: referralInfo.referral_place,
+        if_referred_to_govt: referralInfo.if_referred_to_govt,
+
+        bed_net_use_practice_during_sleep: healthBehaviour.bed_net_use_practice_during_sleep,
+        handwashing_practice_with_soap__water: healthBehaviour.handwashing_practice_with_soap__water,
+        type_latrine_use: healthBehaviour.type_latrine_use,
+
+        // Environment & disaster
+        presence_of_mosquito_larvae: environmentInfo.presence_of_mosquito_larvae,
+        presence_of_stagnant_water_mosquito_breeding_sites: environmentInfo.presence_of_stagnant_water_mosquito_breeding_sites,
+
+        did_any_disaster_occur_in_last_7_days_: disasterInfo.did_any_disaster_occur_in_last_7_days_,
+        what_types: (disasterInfo.what_types || "").split(" ").filter(Boolean),
+
+        // Already diagnosed cases (for non-suspected)
+        no_of_already_diagnosed_cases_of_dengue_in_the_hh: alreadyDiagnosed.no_of_already_diagnosed_cases_of_dengue_in_the_hh_1,
+        no_of_already_diagnosed_cases_of_malaria_in_the_hh: alreadyDiagnosed.no_of_already_diagnosed_cases_of_malaria_in_the_hh,
+        no_of_already_diagnosed_cases_of_awd_in_the_hh: alreadyDiagnosed.no_of_already_diagnosed_cases_of_awd_in_the_hh,
+
+        // Dates
+        day: direct.end ? direct.end.slice(0, 10) : (healthWorkerInfo.date || direct.date || null),
+        date: direct.date,
+        remarks: direct.remarks
+    };
+}
+
+
+function extractHierarchy(submissions) {
+    // For hierarchical filter dropdowns
     const divisions = [];
     const divisionToDistricts = {};
     const districtToUpazilas = {};
@@ -562,48 +871,57 @@ function extractHierarchy(submissions) {
     const organizations = [];
     const diseases = [];
 
+    // FLATTEN allRows for filtering/charts
+    const allRows = [];
+
     for (const x of submissions) {
-        if (!x.data) continue;
-        const addr = x.data.address || {};
-        const div = addr.division;
-        const dis = addr.district;
-        const upa = addr.upazila;
-        const uni = addr.union;
-        const war = addr.ward;
-        const area = addr.area;
-        if (div) {
-            divisions.push(div);
-            divisionToDistricts[div] = divisionToDistricts[div] || [];
-            if (dis) divisionToDistricts[div].push(dis);
+        // Use robust flattening, skip if empty
+        const row = flattenSubmission(x);
+        if (!row) continue;
+
+        // Populate hierarchies
+        const { division, district, upazila, union, ward, area, organization, disease } = row;
+
+        // Division to district
+        if (division) {
+            divisions.push(division);
+            divisionToDistricts[division] = divisionToDistricts[division] || [];
+            if (district) divisionToDistricts[division].push(district);
         }
-        if (dis) {
-            allDistricts.push(dis);
-            districtToUpazilas[dis] = districtToUpazilas[dis] || [];
-            if (upa) districtToUpazilas[dis].push(upa);
+        // District to upazila
+        if (district) {
+            allDistricts.push(district);
+            districtToUpazilas[district] = districtToUpazilas[district] || [];
+            if (upazila) districtToUpazilas[district].push(upazila);
         }
-        if (upa) {
-            allUpazilas.push(upa);
-            upazilaToUnions[upa] = upazilaToUnions[upa] || [];
-            if (uni) upazilaToUnions[upa].push(uni);
+        // Upazila to union
+        if (upazila) {
+            allUpazilas.push(upazila);
+            upazilaToUnions[upazila] = upazilaToUnions[upazila] || [];
+            if (union) upazilaToUnions[upazila].push(union);
         }
-        if (uni) {
-            allUnions.push(uni);
-            unionToWards[uni] = unionToWards[uni] || [];
-            if (war) unionToWards[uni].push(war);
+        // Union to wards
+        if (union) {
+            allUnions.push(union);
+            unionToWards[union] = unionToWards[union] || [];
+            if (ward) unionToWards[union].push(ward);
         }
-        if (war) {
-            allWards.push(war);
-            wardToAreas[war] = wardToAreas[war] || [];
-            if (area) wardToAreas[war].push(area);
+        // Ward to areas
+        if (ward) {
+            allWards.push(ward);
+            wardToAreas[ward] = wardToAreas[ward] || [];
+            if (area) wardToAreas[ward].push(area);
         }
         if (area) {
             allAreas.push(area);
         }
-        // Robust extraction for org + suspected_disease everywhere
-        let org = x.data && x.data?.["_._3"]?.organization
-        if (org) organizations.push(org);
-        let sd = x.data && x.data?.["_._2"]?.suspected_disease;
-        if (sd) diseases.push(...String(sd).split(' ').filter(Boolean));
+        // Organizations
+        if (organization) organizations.push(organization);
+        // Diseases (may be array)
+        if (disease && Array.isArray(disease)) diseases.push(...disease);
+        else if (disease) diseases.push(disease);
+
+        allRows.push(row);
     }
 
     return {
@@ -625,23 +943,164 @@ function extractHierarchy(submissions) {
             Object.entries(unionToWards).map(([k, v]) => [k, getUnique(v)])),
         wardToAreas: Object.fromEntries(
             Object.entries(wardToAreas).map(([k, v]) => [k, getUnique(v)])),
-        // All raw links for filtering below
-        allRows: submissions.map(x => ({
-            division: x.data?.address?.division,
-            district: x.data?.address?.district,
-            upazila: x.data?.address?.upazila,
-            union: x.data?.address?.union,
-            ward: x.data?.address?.ward,
-            area: x.data?.address?.area,
-            organization: x.data?.["_._3"]?.organization,
-            day: x.data?.end ? x.data.end.slice(0, 10) : null, // "YYYY-MM-DD"
-            disease: (x.data?.["_._2"]?.suspected_disease || "")
-                .split(" ")
-                .filter(Boolean)
-        }))
-
+        allRows, // *** This is your flat, filterable DASHBOARD DATA ***
     };
+}
+
+// function PieCard({ title, data, colors }) {
+//     return (
+//         <DashboardCard title={title}>
+//             <PieChart width={120} height={120}>
+//                 <Pie
+//                     data={data}
+//                     cx={60} cy={60} innerRadius={35} outerRadius={50}
+//                     dataKey="value"
+//                     label={({ name, value }) => `${name} ${value}`}
+//                 >
+//                     {data.map((entry, index) =>
+//                         <Cell key={index} fill={colors[index % colors.length]} />
+//                     )}
+//                 </Pie>
+//                 <Tooltip />
+//             </PieChart>
+//         </DashboardCard>
+//     );
+// }
+
+
+const DashboardCard = ({ title, children, barColor = "#005fbe" }) => (
+    <div className="rounded-md shadow border border-blue-800 flex flex-col w-full h-full bg-white overflow-hidden">
+        {/* Colored Title Bar */}
+        <div
+            style={{ background: barColor }}
+            className="px-3 py-2"
+        >
+            <h3 className="text-base font-bold text-white tracking-tight">
+                {title}
+            </h3>
+        </div>
+
+        {/* Chart/Content Area: fills available space */}
+        <div className="flex-1 flex items-center justify-center w-full h-full min-h-[150px]">
+            <div className="w-full h-full flex items-center justify-center">
+                {children}
+            </div>
+        </div>
+    </div>
+);
+
+
+function PieCard({ title, data, colors }) {
+    return (
+        <DashboardCard title={title}>
+            <div style={{ width: "100%", height: 250, padding: 10 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                        <Pie
+                            data={data}
+                            dataKey="value"
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={0}          // full pie
+                            outerRadius="45%"        // fill container
+                            label={({ name, value }) => `${name} (${value})`}
+                            labelLine={true}         // show lines to labels
+                        >
+                            {data.map((entry, index) => (
+                                <Cell key={index} fill={colors[index % colors.length]} />
+                            ))}
+                        </Pie>
+                        <Tooltip />
+                    </PieChart>
+                </ResponsiveContainer>
+            </div>
+        </DashboardCard>
+    );
+}
+
+function MultiPieCard({ title, data, colors }) {
+    // Calculate radius based on number of slices
+    // const outerRadius = Math.max(40, 100 - data.length * 10);
+
+    return (
+        <DashboardCard title={title}>
+            <div className="flex flex-col items-center w-full h-full p-4">
+                <div style={{ width: "100%", height: 150 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie
+                                data={data}
+                                dataKey="value"
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={0}
+                                outerRadius={50}
+                                paddingAngle={2}
+                                label={false} // hide labels on pie itself
+                            >
+                                {data.map((entry, index) => (
+                                    <Cell key={index} fill={colors[index % colors.length]} />
+                                ))}
+                            </Pie>
+                            <Tooltip />
+                        </PieChart>
+                    </ResponsiveContainer>
+                </div>
+
+                {/* Legend below pie */}
+                <div className="flex flex-wrap justify-center gap-2 mt-2 text-xs">
+                    {data.map((entry, index) => (
+                        <div key={index} className="flex items-center gap-1">
+                            <span
+                                className="w-3 h-3 rounded-full"
+                                style={{ backgroundColor: colors[index % colors.length] }}
+                            />
+                            <span>{`${entry.name} (${entry.value})`}</span>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        </DashboardCard>
+    );
 }
 
 
 
+// Bar chart card
+function BarCard({ title, data, colors = ["#005fbe"] }) {
+    return (
+        <DashboardCard title={title}>
+            <div style={{ width: "100%", height: 150 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={data} margin={{ top: 20, right: 10, bottom: 10, left: 0 }}>
+                        <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        <Bar dataKey="value">
+                            {data.map((entry, index) => (
+                                <Cell key={index} fill={colors[index % colors.length]} />
+                            ))}
+                            <LabelList dataKey="value" position="top" className="text-xs fill-foreground" />
+                        </Bar>
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+        </DashboardCard>
+    );
+}
+
+// Line chart card
+function LineCard({ title, data, lineColor = "#005fbe" }) {
+    return (
+        <DashboardCard title={title}>
+            <ResponsiveContainer width="99%" height={150}>
+                <LineChart data={data}>
+                    <XAxis dataKey="name" />
+                    <YAxis allowDecimals={false} />
+                    <Line type="monotone" dataKey="value" stroke={lineColor} strokeWidth={3} />
+                    <Tooltip />
+                </LineChart>
+            </ResponsiveContainer>
+        </DashboardCard>
+    );
+}
