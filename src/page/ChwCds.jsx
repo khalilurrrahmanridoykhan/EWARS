@@ -1,6 +1,13 @@
 import HierarchicalMultiSelect from '@/components/HierarchicalMultiSelect';
 import axios from 'axios';
 import React, { useEffect, useMemo, useState } from 'react'
+import { Input } from "@/components/ui/input"
+import { Card } from "@/components/ui/card"
+import { CalendarIcon } from "lucide-react"
+import { format } from "date-fns"
+import { Button } from "@/components/ui/button"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
 
 function ChwCds() {
     const [allData, setAllData] = useState(null);
@@ -15,6 +22,13 @@ function ChwCds() {
     const [selectedAreas, setSelectedAreas] = useState([]);
     const [selectedOrganizations, setSelectedOrganizations] = useState([]);
     const [selectedDiseases, setSelectedDiseases] = useState([]);
+
+    const [filteredSubmissions, setFilteredSubmissions] = useState([]);
+    const [dateRange, setDateRange] = useState([null, null]); // [startDate, endDate]
+
+
+    console.log("alldata", allData);
+    console.log("filteredSubmissions", filteredSubmissions);
 
     useEffect(() => {
         const fetchData = async () => {
@@ -227,6 +241,85 @@ function ChwCds() {
                 .flatMap(row => row.disease)
         ) : [], [h, selectedDivisions, selectedDistricts, selectedUpazilas, selectedUnions, selectedWards, selectedAreas]);
 
+    useEffect(() => {
+        if (!h || !h.allRows) {
+            setFilteredSubmissions([]);
+            return;
+        }
+        const [start, end] = dateRange;
+        const filtered = h.allRows.filter(row =>
+            (!selectedDivisions.length || selectedDivisions.includes(row.division)) &&
+            (!selectedDistricts.length || selectedDistricts.includes(row.district)) &&
+            (!selectedUpazilas.length || selectedUpazilas.includes(row.upazila)) &&
+            (!selectedUnions.length || selectedUnions.includes(row.union)) &&
+            (!selectedWards.length || selectedWards.includes(row.ward)) &&
+            (!selectedAreas.length || selectedAreas.includes(row.area)) &&
+            (!selectedOrganizations.length || selectedOrganizations.includes(row.organization)) &&
+            (
+                !selectedDiseases.length ||
+                row.disease.some(d => selectedDiseases.includes(d))
+            ) &&
+            (!start || !row.day || row.day >= start) &&
+            (!end || !row.day || row.day <= end)
+        );
+        setFilteredSubmissions(filtered);
+    }, [
+        h,
+        selectedDivisions,
+        selectedDistricts,
+        selectedUpazilas,
+        selectedUnions,
+        selectedWards,
+        selectedAreas,
+        selectedOrganizations,
+        selectedDiseases,
+        dateRange
+    ]);
+
+    // // Find available min/max dates from raw data
+    // const minDay = useMemo(() => {
+    //     if (!h || !h.allRows || !h.allRows.length) return null;
+    //     return h.allRows
+    //         .map(x => x.date)
+    //         .filter(Boolean)
+    //         .sort()[0];
+    // }, [h]);
+
+    // const maxDay = useMemo(() => {
+    //     if (!h || !h.allRows || !h.allRows.length) return null;
+    //     return h.allRows
+    //         .map(x => x.date)
+    //         .filter(Boolean)
+    //         .sort()
+    //         .slice(-1)[0];
+    // }, [h]);
+
+    const allDays = useMemo(() => (
+        h && h.allRows
+            ? getUnique(h.allRows.map(x => x.day).filter(Boolean)).sort()
+            : []
+    ), [h]);
+
+    const minDay = allDays[0];
+    const maxDay = allDays[allDays.length - 1];
+
+    // Enforce clamping on setDateRange
+    const clampDate = (d, minD, maxD) =>
+        d < minD ? minD : d > maxD ? maxD : d;
+
+    function handleDateRangeChange([from, to]) {
+        if (!minDay || !maxDay) return;
+        // Clamp within min/max
+        const clampedFrom = clampDate(from, minDay, maxDay);
+        const clampedTo = clampDate(to, minDay, maxDay);
+        setDateRange([clampedFrom, clampedTo]);
+    }
+
+    // On initial data load, select full range
+    useEffect(() => {
+        if (minDay && maxDay) setDateRange([minDay, maxDay]);
+    }, [minDay, maxDay]);
+
 
     // if (!h) return <div>Loading...</div>;
     if (!h || !h.allRows) {
@@ -238,12 +331,58 @@ function ChwCds() {
 
     return (
         <div>
+            <div>
+                <p>{filteredSubmissions.length}</p>
+            </div>
             <div className="bg-blue-50 p-4 rounded-xl shadow-md mb-6">
                 <div className="grid grid-2 md:grid-cols-3 lg:grid-cols-4 gap-4 items-end">
                     {/* Date Range Picker (static for now) */}
-                    <div className="flex flex-col min-w-[120px]">
-                        <label className="mb-1 font-medium text-gray-700">Date range</label>
-                        <input type="text" className="border rounded-md px-2 py-1" placeholder="Select Date Range" disabled />
+
+
+                    <div className="flex flex-col min-w-[220px] gap-2">
+                        <p className="font-medium text-gray-700">Date range</p>
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    className="w-[280px] justify-start text-left font-normal"
+                                >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {dateRange[0] && dateRange[1] ? (
+                                        <>
+                                            {format(new Date(dateRange[0]), "LLL dd, y")} –{" "}
+                                            {format(new Date(dateRange[1]), "LLL dd, y")}
+                                        </>
+                                    ) : (
+                                        <span>Pick a date range</span>
+                                    )}
+                                </Button>
+                            </PopoverTrigger>
+
+                            <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                    mode="range"
+                                    numberOfMonths={2}
+                                    selected={{
+                                        from: dateRange[0] ? new Date(dateRange[0]) : undefined,
+                                        to: dateRange[1] ? new Date(dateRange[1]) : undefined,
+                                    }}
+                                    min={new Date(minDay)}
+                                    max={new Date(maxDay)}
+                                    onSelect={(range) => {
+                                        if (!range) return;
+                                        handleDateRangeChange([
+                                            range.from
+                                                ? range.from.toISOString().split("T")[0]
+                                                : minDay,
+                                            range.to
+                                                ? range.to.toISOString().split("T")[0]
+                                                : maxDay,
+                                        ]);
+                                    }}
+                                />
+                            </PopoverContent>
+                        </Popover>
                     </div>
 
                     <HierarchicalMultiSelect
@@ -407,6 +546,7 @@ function getUnique(arr) {
 }
 
 function extractHierarchy(submissions) {
+
     // All levels
     const divisions = [];
     const divisionToDistricts = {};
@@ -460,9 +600,9 @@ function extractHierarchy(submissions) {
             allAreas.push(area);
         }
         // Robust extraction for org + suspected_disease everywhere
-        let org = x.data._ && x.data._._3 && x.data._._3.organization;
+        let org = x.data && x.data?.["_._3"]?.organization
         if (org) organizations.push(org);
-        let sd = x.data._ && x.data._._2 && x.data._._2.suspected_disease;
+        let sd = x.data && x.data?.["_._2"]?.suspected_disease;
         if (sd) diseases.push(...String(sd).split(' ').filter(Boolean));
     }
 
@@ -493,10 +633,15 @@ function extractHierarchy(submissions) {
             union: x.data?.address?.union,
             ward: x.data?.address?.ward,
             area: x.data?.address?.area,
-            organization: x.data?._?._3?.organization,
-            disease: (x.data?._?._2?.suspected_disease || "")
-                .split(" ").filter(Boolean)
+            organization: x.data?.["_._3"]?.organization,
+            day: x.data?.end ? x.data.end.slice(0, 10) : null, // "YYYY-MM-DD"
+            disease: (x.data?.["_._2"]?.suspected_disease || "")
+                .split(" ")
+                .filter(Boolean)
         }))
+
     };
 }
+
+
 

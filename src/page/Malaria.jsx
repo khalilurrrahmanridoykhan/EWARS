@@ -13,7 +13,7 @@ import HierarchicalMultiSelect from "@/components/HierarchicalMultiSelect";
 // Demo chart data
 const chartData = [
     { month: "August", threshold: 10, predicted: 12, actual: 9 },
-    { month: "September", threshold: 12, predicted: 14, actual: 11 },
+    { month: "September", threshold: 3, predicted: 14, actual: 11 },
     { month: "October", threshold: 15, predicted: 16, actual: 13 },
     { month: "November", threshold: 17, predicted: 18, actual: 16 },
     { month: "December", threshold: 20, predicted: 21, actual: 19 },
