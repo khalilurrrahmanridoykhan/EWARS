@@ -3,6 +3,27 @@
 
 @custom-variant dark (&:is(.dark *));
 
+@keyframes blink {
+  0% {
+    r: 6;
+    opacity: 1;
+  }
+
+  50% {
+    r: 10;
+    opacity: 0.2;
+  }
+
+  100% {
+    r: 6;
+    opacity: 1;
+  }
+}
+
+.blink-dot {
+  animation: blink 1s infinite ease-in-out;
+}
+
 @theme inline {
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -114,6 +135,7 @@
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }

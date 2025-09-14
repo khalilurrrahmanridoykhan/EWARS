@@ -239,41 +239,33 @@ function ChwCds() {
         [h, filterState]
     );
 
-    const organizationOptions = useMemo(() =>
+    const filteredRows = useMemo(() =>
         h && h.allRows
-            ? getUnique(
-                h.allRows
-                    .filter(row =>
-                        (!selectedDivisions.length || selectedDivisions.includes(row.division)) &&
-                        (!selectedDistricts.length || selectedDistricts.includes(row.district)) &&
-                        (!selectedUpazilas.length || selectedUpazilas.includes(row.upazila)) &&
-                        (!selectedUnions.length || selectedUnions.includes(row.union)) &&
-                        (!selectedWards.length || selectedWards.includes(row.ward)) &&
-                        (!selectedAreas.length || selectedAreas.includes(row.area))
-                    )
-                    .map(row => row.organization)
+            // Only show rows for which ALL NOT-EMPTY filters match
+            ? h.allRows.filter(row =>
+                (!selectedDivisions.length || selectedDivisions.includes(row.division)) &&
+                (!selectedDistricts.length || selectedDistricts.includes(row.district)) &&
+                (!selectedUpazilas.length || selectedUpazilas.includes(row.upazila)) &&
+                (!selectedUnions.length || selectedUnions.includes(row.union)) &&
+                (!selectedWards.length || selectedWards.includes(row.ward)) &&
+                (!selectedAreas.length || selectedAreas.includes(row.area))
             )
             : [],
         [h, selectedDivisions, selectedDistricts, selectedUpazilas, selectedUnions, selectedWards, selectedAreas]
     );
 
-    const diseaseOptions = useMemo(() =>
-        h && h.allRows
-            ? getUnique(
-                h.allRows
-                    .filter(row =>
-                        (!selectedDivisions.length || selectedDivisions.includes(row.division)) &&
-                        (!selectedDistricts.length || selectedDistricts.includes(row.district)) &&
-                        (!selectedUpazilas.length || selectedUpazilas.includes(row.upazila)) &&
-                        (!selectedUnions.length || selectedUnions.includes(row.union)) &&
-                        (!selectedWards.length || selectedWards.includes(row.ward)) &&
-                        (!selectedAreas.length || selectedAreas.includes(row.area)) &&
-                        (!selectedOrganizations.length || selectedOrganizations.includes(row.organization))
-                    )
-                    .flatMap(row => row.disease)
-            )
+    const organizationOptions = useMemo(() =>
+        filteredRows.length > 0
+            ? getUnique(filteredRows.map(row => row.organization).filter(Boolean))
             : [],
-        [h, selectedDivisions, selectedDistricts, selectedUpazilas, selectedUnions, selectedWards, selectedAreas, selectedOrganizations]
+        [filteredRows]
+    );
+
+    const diseaseOptions = useMemo(() =>
+        filteredRows.length > 0
+            ? getUnique(filteredRows.flatMap(row => row.disease).filter(Boolean))
+            : [],
+        [filteredRows]
     );
 
     useEffect(() => {

@@ -10,6 +10,8 @@ import { format } from "date-fns"
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react"
 import HierarchicalMultiSelect from "@/components/HierarchicalMultiSelect";
 import { toast } from "sonner";
+import axios from "axios";
+import { keyframes } from "@emotion/react";
 
 // Demo chart data
 const chartData = [
@@ -44,14 +46,17 @@ export default function MalariaRiskTracker() {
     const [forecastResults, setForecastResults] = useState([]); // Will hold the API re
 
     const baseDate = new Date();
-    const months = getMonthVariants(baseDate);
+    const months = useMemo(
+        () => getMonthVariants(selectedMonth ? new Date(selectedMonth) : new Date()),
+        [selectedMonth]
+    );
 
     console.log("Selected:", { selectedUpazila, selectedMonth });
 
 
     // Load geojson and setup initial selection
     useEffect(() => {
-        fetch("/upazila_simplified2.json")
+        fetch("/upazila_simplified3.json")
             .then(res => res.json())
             .then(data => {
                 setGeoJson(data);
@@ -76,24 +81,22 @@ export default function MalariaRiskTracker() {
             toast.error("Please select at least one Upazila and a month.");
             return;
         }
-
         const months = getAdjacentMonths(selectedMonth);
-
         const results = await Promise.all(
             selectedUpazilas.flatMap(upazila =>
                 months.map(month =>
-                    fetch(`/api/forecast?upazila=${encodeURIComponent(upazila)}&month=${month}`)
-                        .then(res => res.json())
-                        .then(data => ({ ...data, upa_name: upazila, forecast_month: month }))
+                    axios.post("/api/predict_simple", { upa_name: upazila, forecast_month: month })
+                        .then(res => {
+                            toast.success(`Data loaded for ${upazila} (${month})`);
+                            return { ...res.data, upa_name: upazila, forecast_month: month };
+                        })
                         .catch(() => {
                             toast.error(`Failed to fetch data for ${upazila} - ${month}`);
-                            return null; // prevent Promise.all from breaking
+                            return null;
                         })
                 )
             )
         );
-
-        // filter out failed fetches if needed
         setForecastResults(results.filter(Boolean));
     };
 
@@ -196,7 +199,9 @@ export default function MalariaRiskTracker() {
                         <MapCard
                             key={`pred-${i}`}
                             title={`Predictive API – ${m.label}`}
-                            geojson={filteredGeoJson}   // pass the same filtered geojson to every map
+                            geojson={filteredGeoJson}
+                            forecastResults={forecastResults}
+                            forecastMonth={m.code}
                         />
                     ))}
                 </div>
@@ -220,8 +225,13 @@ export default function MalariaRiskTracker() {
                             <Tooltip />
                             <Legend />
                             <Line type="monotone" dataKey="threshold" stroke="#ef4444" /> {/* red */}
-                            <Line type="monotone" dataKey="predicted" stroke="#3b82f6" /> {/* blue */}
-                            <Line type="monotone" dataKey="actual" stroke="#22c55e" /> {/* green */}
+                            <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={<BlinkingDot />} /> {/* blue */}
+                            <Line
+                                type="monotone"
+                                dataKey="actual"
+                                stroke="#22c55e"
+                                dot={<BlinkingDot />}
+                            />
 
                             <Brush
                                 dataKey="month"
@@ -302,49 +312,96 @@ function MonthPicker({ label, date, setDate }) {
     )
 }
 
-
-function GeoJSONLayer({ geojson }) {
+function GeoJSONLayer({ geojson, forecastResults, forecastMonth }) {
     const map = useMap();
 
     useEffect(() => {
         if (!geojson) return;
 
-        // Remove previous geoJSON layers
+        function getPrediction(upa) {
+            if (!forecastResults) return null;
+            // Robust case and space comparison:
+            return forecastResults.find(
+                res =>
+                    res.upa_name.trim().toLowerCase() === upa.trim().toLowerCase() &&
+                    res.forecast_month === forecastMonth
+            );
+        }
+
+
+
         map.eachLayer(layer => {
             if (layer.feature) map.removeLayer(layer);
         });
 
-        // Add new layer
         const layer = L.geoJSON(geojson, {
-            style: {
-                color: "#000",
-                weight: 0.1,
-                fillColor: "#bdbdbd",
-                fillOpacity: 0.9,
+            style: feature => {
+                const upa = feature?.properties?.UPA_NAME;
+                const pred = getPrediction(upa);
+                let fillColor = "#eee";
+                if (pred && pred.pred_cases !== undefined) {
+                    const cases = Number(pred.pred_cases) || 0;
+                    fillColor = cases > 100 ? "#ef4444" : (cases > 50 ? "#fbbf24" : "#22c55e");
+                }
+                return {
+                    color: "#000",
+                    weight: 0.2,
+                    fillColor,
+                    fillOpacity: 0.7,
+                };
             },
             onEachFeature: (feature, lyr) => {
-                if (feature.properties) {
-                    lyr.bindPopup(
-                        `<b>Upazila:</b> ${feature.properties.UPA_NAME || "Unknown"}`
-                    );
+                const upa = feature?.properties?.UPA_NAME;
+                const pred = getPrediction(upa);
+
+                let html = `
+        <div style="font-family: Arial, sans-serif; font-size: 11px; color: #333; max-width: 180px;">
+            <table style="border-collapse: collapse; width: 100%;">
+                <tr>
+                    <td style="padding: 2px 4px; font-weight: bold;">Upazila</td>
+                    <td style="padding: 2px 4px;">${upa || "Unknown"}</td>
+                </tr>
+    `;
+
+                if (pred && pred.pred_cases !== undefined) {
+                    html += `
+                <tr>
+                    <td style="padding: 2px 4px; font-weight: bold;">Month</td>
+                    <td style="padding: 2px 4px;">${pred.forecast_month}</td>
+                </tr>
+                <tr>
+                    <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
+                    <td style="padding: 2px 4px;">${pred.pred_cases}</td>
+                </tr>
+            </table>
+        </div>
+        `;
+                } else {
+                    html += `
+            </table>
+            <div style="margin-top: 2px; font-style: italic; color: #777;">
+                No prediction data
+            </div>
+        </div>
+        `;
                 }
-            },
+
+                lyr.bindPopup(html);
+            }
+
+            ,
         });
         layer.addTo(map);
 
         if (geojson.features.length > 0) {
             map.fitBounds(layer.getBounds());
         }
-        // Cleanup: remove the layer on unmount/update
         return () => {
             map.removeLayer(layer);
         };
-    }, [geojson, map]);
-
+    }, [geojson, map, forecastResults, forecastMonth]);
     return null;
 }
-
-
 
 function buildHierarchy(features) {
     const divs = new Set();
@@ -382,25 +439,63 @@ function getMonthVariants(startDate) {
     const currentMonth = startDate.getMonth();
     const currentYear = startDate.getFullYear();
     const prev = new Date(currentYear, currentMonth - 1, 1);
+    const curr = new Date(currentYear, currentMonth, 1);
     const next = new Date(currentYear, currentMonth + 1, 1);
     return [
-        { label: `${monthNames[prev.getMonth()]} ${prev.getFullYear()}` },
-        { label: `${monthNames[currentMonth]} ${currentYear}` },
-        { label: `${monthNames[next.getMonth()]} ${next.getFullYear()}` },
+        { label: `${monthNames[prev.getMonth()]} ${prev.getFullYear()}`, code: prev.toISOString().slice(0, 10) },
+        { label: `${monthNames[currentMonth]} ${currentYear}`, code: curr.toISOString().slice(0, 10) },
+        { label: `${monthNames[next.getMonth()]} ${next.getFullYear()}`, code: next.toISOString().slice(0, 10) },
     ];
 }
 
+
 // Map Card
-function MapCard({ title, geojson }) {
+function MapCard({ title, geojson, forecastResults, forecastMonth }) {
     return (
         <div className="border rounded shadow bg-white">
             <div className="bg-[#004bad] text-white px-2 py-1 font-semibold text-sm">{title}</div>
             <div className="h-56">
                 <MapContainer center={[23.81, 90.41]} zoom={7} className="h-full w-full">
                     <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
-                    {geojson && <GeoJSONLayer geojson={geojson} />}
+                    {geojson && (
+                        <GeoJSONLayer
+                            geojson={geojson}
+                            forecastResults={forecastResults}
+                            forecastMonth={forecastMonth} // Pass down
+                        />
+                    )}
                 </MapContainer>
             </div>
         </div>
     );
 }
+
+
+
+
+const BlinkingDot = ({ cx, cy, value, payload }) => {
+    if (value > payload.threshold) {
+        return (
+            <circle
+                cx={cx}
+                cy={cy}
+                r={6}
+                fill="#ef4444"
+                stroke="#fff"
+                strokeWidth={2}
+                className="blink-dot"
+            />
+        );
+    }
+    return (
+        <circle
+            cx={cx}
+            cy={cy}
+            r={4}
+            fill="#22c55e"
+            stroke="#fff"
+            strokeWidth={1}
+        />
+    );
+};
+
