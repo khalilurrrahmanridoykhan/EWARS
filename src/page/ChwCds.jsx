@@ -9,10 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
 
-import { MapContainer, TileLayer, CircleMarker } from "react-leaflet";
+import { MapContainer, TileLayer, CircleMarker, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import MarkerClusterGroup from "react-leaflet-markercluster";
+import "leaflet.markercluster/dist/MarkerCluster.css";
+import "leaflet.markercluster/dist/MarkerCluster.Default.css";
+import "leaflet.markercluster"
 
 import {
     LineChart, Line,
@@ -1236,6 +1238,61 @@ function LineCard({ title, data, lineColor = "#005fbe", stat }) {
     );
 }
 
+function MarkerClusterLayer({ points }) {
+    const map = useMap();
+
+    React.useEffect(() => {
+        const markerCluster = L.markerClusterGroup({
+            iconCreateFunction: (cluster) => {
+                const count = cluster.getChildCount();
+                const size = 20 + Math.log(count) * 10;
+                return L.divIcon({
+                    html: `<div style="
+                        background: rgba(255,78,46,0.6);
+                        border: 2px solid #fff;
+                        border-radius: 50%;
+                        width:${size}px;
+                        height:${size}px;
+                        display:flex;
+                        align-items:center;
+                        justify-content:center;
+                        color:#fff;
+                        font-size:12px;
+                        font-weight:bold;
+                    ">${count}</div>`,
+                    className: "custom-cluster-icon",
+                    iconSize: [size, size],
+                });
+            },
+        });
+
+        points.forEach((pt) => {
+            const radius = 4 + Math.log(Math.max(Number(pt.age) || 1, 1));
+            const circleMarker = L.circleMarker([pt.lat, pt.lng], {
+                radius,
+                fillColor: "#ff4e2e",
+                color: "#fff",
+                weight: 1,
+                opacity: 1,
+                fillOpacity: 0.6,
+            });
+
+            // Add popup with details (table style)
+            circleMarker.bindPopup(getPopupContent(pt));
+
+            markerCluster.addLayer(circleMarker);
+        });
+
+        map.addLayer(markerCluster);
+
+        return () => {
+            map.removeLayer(markerCluster);
+        };
+    }, [map, points]);
+
+    return null;
+}
+
 
 function PatientMap({ points }) {
     return (
@@ -1249,43 +1306,68 @@ function PatientMap({ points }) {
                 attribution='&copy; OpenStreetMap contributors & CartoDB'
                 url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
             />
-
-            <MarkerClusterGroup
-                iconCreateFunction={(cluster) => {
-                    const count = cluster.getChildCount();
-                    const size = 20 + Math.log(count) * 10; // scale bubble by count
-                    return L.divIcon({
-                        html: `<div style="
-              background: rgba(255,78,46,0.6);
-              border: 2px solid #fff;
-              border-radius: 50%;
-              width:${size}px;
-              height:${size}px;
-              display:flex;
-              align-items:center;
-              justify-content:center;
-              color:#fff;
-              font-size:12px;
-              font-weight:bold;
-            ">${count}</div>`,
-                        className: "custom-cluster-icon",
-                        iconSize: [size, size],
-                    });
-                }}
-            >
-                {points.map((pt, i) => (
-                    <CircleMarker
-                        key={i}
-                        center={[pt.lat, pt.lng]}
-                        radius={4 + Math.log(Math.max(Number(pt.age) || 1, 1))}
-                        fillColor="#ff4e2e"
-                        color="#fff"
-                        weight={1}
-                        opacity={1}
-                        fillOpacity={0.6}
-                    />
-                ))}
-            </MarkerClusterGroup>
+            <MarkerClusterLayer points={points} />
         </MapContainer>
     );
 }
+
+function getPopupContent(pt) {
+    return `
+    <div style="
+      font-size:13px;
+      min-width:220px;
+      max-width:300px;
+      max-height:200px; /* limit height */
+      overflow-y:auto;  /* enable scroll */
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color:#2b3e50;
+    ">
+      <table style="
+        width:100%;
+        border-collapse:collapse;
+        border:1px solid #e0e6ed;
+      ">
+        <tbody>
+          ${[
+            ["Submission Date", pt.day || ""],
+            ["Name", pt.name_of_the_person_with_suspected_case || "-"],
+            ["Age", pt.age || "-"],
+            ["Sex", pt.sex || "-"],
+            ["Phone", pt.mobile_number || "-"],
+            ["Disease(s)", Array.isArray(pt.disease) ? pt.disease.join(", ") : (pt.disease || "-")],
+            ["Suspected", pt.suspected_in_the_disease || "-"],
+            ["Division", pt.division || "-"],
+            ["District", pt.district || "-"],
+            ["Upazila", pt.upazila || "-"],
+            ["Union", pt.union || "-"],
+            ["Ward", pt.ward || "-"],
+            ["Area", pt.area || "-"],
+            ["Referral", pt.referred || "-"],
+            ["Facility", pt.referral_place || "-"],
+            ["Organization", pt.organization || "-"],
+        ]
+            .map(
+                ([label, value], i) => `
+                <tr style="background:${i % 2 === 0 ? "#f9fbfd" : "#ffffff"};">
+                  <td style="
+                    padding:6px 8px;
+                    font-weight:600;
+                    color:#4a6572;
+                    border-bottom:1px solid #e0e6ed;
+                    width:40%;
+                  ">${label}:</td>
+                  <td style="
+                    padding:6px 8px;
+                    border-bottom:1px solid #e0e6ed;
+                    word-wrap:break-word;
+                  ">${value}</td>
+                </tr>
+              `
+            )
+            .join("")}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
