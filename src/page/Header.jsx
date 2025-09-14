@@ -25,7 +25,7 @@ const navItems = [
         name: "Prediction",
         children: [
             { name: "District", href: "/prediction/district" },
-            { name: "Upazila", href: "/prediction/upazila" },
+            { name: "Upazila", href: "/diseases/predict/malaria" },
         ],
     },
     { name: "Alert", href: "/alert" },

@@ -20,7 +20,9 @@ import {
     LineChart, Line,
     BarChart, Bar,
     PieChart, Pie, Cell,
-    XAxis, YAxis, Tooltip, Legend, LabelList, ResponsiveContainer
+    XAxis, YAxis, Tooltip, Legend, LabelList, ResponsiveContainer,
+    CartesianGrid,
+    Brush
 } from 'recharts';
 
 
@@ -1223,20 +1225,40 @@ function HorizontalBarCard({ title, data, colors = ["#005fbe"], stat }) {
 
 
 
-function LineCard({ title, data, lineColor = "#005fbe", stat }) {
+function LineCard({ title, data, stat }) {
     return (
         <DashboardCard title={title} stat={stat}>
-            <ResponsiveContainer width="99%" height={150}>
-                <LineChart data={data}>
-                    <XAxis dataKey="name" />
-                    <YAxis allowDecimals={false} />
-                    <Line type="monotone" dataKey="value" stroke={lineColor} strokeWidth={3} />
-                    <Tooltip />
-                </LineChart>
-            </ResponsiveContainer>
+            <div style={{ width: "100%", height: 160 }}>
+                <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={data} margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" />
+                        <YAxis allowDecimals={false} />
+                        <Tooltip />
+                        {/* <Legend /> */}
+                        {/* Single line for your value */}
+                        <Line
+                            type="monotone"
+                            dataKey="value"
+                            stroke="#3b82f6"
+                            strokeWidth={3}
+                            dot={{ r: 4, stroke: "#3b82f6", strokeWidth: 2, fill: "#fff" }}
+                            activeDot={{ r: 6 }}
+                        >
+                            <LabelList
+                                dataKey="value"
+                                position="top"
+                                className="text-xs fill-foreground"
+                            />
+                        </Line>
+                    </LineChart>
+                </ResponsiveContainer>
+            </div>
         </DashboardCard>
     );
 }
+
+
 
 function MarkerClusterLayer({ points }) {
     const map = useMap();

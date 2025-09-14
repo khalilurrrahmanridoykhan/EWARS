@@ -9,6 +9,7 @@ import { Calendar } from "@/components/ui/calendar"
 import { format } from "date-fns"
 import { Calendar as CalendarIcon, ChevronLeft, ChevronRight } from "lucide-react"
 import HierarchicalMultiSelect from "@/components/HierarchicalMultiSelect";
+import { toast } from "sonner";
 
 // Demo chart data
 const chartData = [
@@ -26,7 +27,7 @@ const monthNames = [
 ];
 
 
-export default function RiskTracker() {
+export default function MalariaRiskTracker() {
     const [geoJson, setGeoJson] = useState(null);
     const [selectedDivisions, setSelectedDivisions] = useState([]);
     const [selectedDistricts, setSelectedDistricts] = useState([]);
@@ -38,8 +39,14 @@ export default function RiskTracker() {
     const [startMonth, setStartMonth] = useState("");
     const [endMonth, setEndMonth] = useState("");
 
+    const [selectedMonth, setSelectedMonth] = useState("");     // e.g. "2025-01-01"
+    const [selectedUpazila, setSelectedUpazila] = useState(""); // e.g. "Teknaf"
+    const [forecastResults, setForecastResults] = useState([]); // Will hold the API re
+
     const baseDate = new Date();
     const months = getMonthVariants(baseDate);
+
+    console.log("Selected:", { selectedUpazila, selectedMonth });
 
 
     // Load geojson and setup initial selection
@@ -54,6 +61,44 @@ export default function RiskTracker() {
                 setSelectedUpazilas([...new Set(Object.values(h.districts).flatMap(dists => dists.flatMap(dist => h.upazilas[dist] || [])))]);
             });
     }, []);
+
+    const getAdjacentMonths = (selectedDate) => {
+        // selectedDate is a JS Date object
+        const prev = new Date(selectedDate.getFullYear(), selectedDate.getMonth() - 1, 1);
+        const curr = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), 1);
+        const next = new Date(selectedDate.getFullYear(), selectedDate.getMonth() + 1, 1);
+
+        return [prev, curr, next].map(d => d.toISOString().slice(0, 10));
+    };
+
+    const handleGenerate = async () => {
+        if (!selectedUpazilas.length || !selectedMonth) {
+            toast.error("Please select at least one Upazila and a month.");
+            return;
+        }
+
+        const months = getAdjacentMonths(selectedMonth);
+
+        const results = await Promise.all(
+            selectedUpazilas.flatMap(upazila =>
+                months.map(month =>
+                    fetch(`/api/forecast?upazila=${encodeURIComponent(upazila)}&month=${month}`)
+                        .then(res => res.json())
+                        .then(data => ({ ...data, upa_name: upazila, forecast_month: month }))
+                        .catch(() => {
+                            toast.error(`Failed to fetch data for ${upazila} - ${month}`);
+                            return null; // prevent Promise.all from breaking
+                        })
+                )
+            )
+        );
+
+        // filter out failed fetches if needed
+        setForecastResults(results.filter(Boolean));
+    };
+
+
+
 
     // Memoize hierarchy for performance
     const hierarchy = useMemo(() => geoJson ? buildHierarchy(geoJson.features) : { divisions: [], districts: {}, upazilas: {} }, [geoJson]);
@@ -98,18 +143,16 @@ export default function RiskTracker() {
         [selectedDistricts, hierarchy]
     );
 
-    // Filtered geojson for the map
     const filteredGeoJson = useMemo(() => {
         if (!geoJson) return null;
-        return {
-            ...geoJson,
-            features: geoJson.features.filter(f =>
-                selectedDivisions.includes(f.properties.DIV_NAME) &&
-                selectedDistricts.includes(f.properties.DIS_NAME) &&
-                selectedUpazilas.includes(f.properties.UPA_NAME)
-            )
-        };
+        const features = geoJson.features.filter(f =>
+            selectedDivisions.includes(f.properties.DIV_NAME) &&
+            selectedDistricts.includes(f.properties.DIS_NAME) &&
+            selectedUpazilas.includes(f.properties.UPA_NAME)
+        );
+        return { ...geoJson, features };
     }, [geoJson, selectedDivisions, selectedDistricts, selectedUpazilas]);
+
 
     return (
         <div className="flex flex-col lg:flex-row">
@@ -131,28 +174,19 @@ export default function RiskTracker() {
                         setSelected={setSelectedDistricts}
                         disabled={!selectedDivisions.length}
                     />
+
                     <HierarchicalMultiSelect
                         label="Upazila"
                         options={upazilaOptions}
                         selected={selectedUpazilas}
                         setSelected={setSelectedUpazilas}
-                        disabled={!selectedDistricts.length}
                     />
 
-                    {/* <HierarchicalMultiSelect
-                        label="Surveillance Sites"
-                        options={["BITID, Sadar Hospital", "CMCH", "ICDDRB"]}
-                        selected={sites}
-                        setSelected={setSites}
-                    /> */}
-
-                    <MonthPicker label="Predict Month" date={startMonth} setDate={setStartMonth} />
-                    {/* <MonthPicker label="End Month" date={endMonth} setDate={setEndMonth} /> */}
+                    <MonthPicker label="Predict Month" date={selectedMonth} setDate={setSelectedMonth} />
+                    <button onClick={handleGenerate} className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
+                        Generate
+                    </button>
                 </div>
-
-                {/* <button className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
-                    Generate
-                </button> */}
             </aside>
 
             {/* Main Content */}
@@ -167,7 +201,7 @@ export default function RiskTracker() {
                     ))}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+                {/* <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
                     {months.map((m, i) => (
                         <MapCard
                             key={`act-${i}`}
@@ -175,7 +209,7 @@ export default function RiskTracker() {
                             geojson={filteredGeoJson}
                         />
                     ))}
-                </div>
+                </div> */}
 
                 <div className="mt-6 bg-white border rounded shadow p-4">
                     <ResponsiveContainer width="100%" height={320}>
@@ -283,10 +317,10 @@ function GeoJSONLayer({ geojson }) {
         // Add new layer
         const layer = L.geoJSON(geojson, {
             style: {
-                color: "#2563eb",
-                weight: 1,
-                fillColor: "#93c5fd",
-                fillOpacity: 0.5,
+                color: "#000",
+                weight: 0.1,
+                fillColor: "#bdbdbd",
+                fillOpacity: 0.9,
             },
             onEachFeature: (feature, lyr) => {
                 if (feature.properties) {
