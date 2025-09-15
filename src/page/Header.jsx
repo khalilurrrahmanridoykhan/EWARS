@@ -4,46 +4,97 @@ import { FaUserCircle } from "react-icons/fa";
 import { FaCheck } from "react-icons/fa6";
 import { Link, useLocation } from "react-router-dom";
 
-const navItems = [
+// Disease menu logic
+const diseases = [
+    { name: "Malaria", key: "malaria" },
+    { name: "Dengue", key: "dengue" },
+    { name: "AWD", key: "awd" }
+];
+// Per-disease dropdown options
+const riskOptions = {
+    malaria: [
+        { name: "Upazila", href: "/risk-map/upazila" },
+        { name: "Community", href: "/risk-map/community" }
+    ],
+    dengue: [{ name: "District", href: "/risk-map/district" }],
+    awd: [{ name: "Surv Site", href: "/risk-map/surv" }]
+};
+const predictionOptions = {
+    malaria: [{ name: "Upazila", href: "/diseases/predict/malaria" }],
+    dengue: [{ name: "District", href: "/prediction/dengue" }],
+    awd: [{ name: "Surv Site", href: "/prediction/awd" }]
+};
+const alertOptions = {
+    malaria: [{ name: "Upazila", href: "/alert/malaria" }],
+    dengue: [{ name: "District", href: "/alert/dengue" }],
+    awd: [{ name: "Surv Site", href: "/alert/awd" }]
+};
+
+const navItemsBase = [
     { name: "Data", href: "/data" },
     {
-        name: "Diseases",
-        children: [
-            { name: "Malaria", href: "/diseases/malaria" },
-            { name: "Dengue", href: "/diseases/dengue" },
-            { name: "AWD", href: "/diseases/awd" },
-        ],
+        name: "Diseases", // This is now the disease picker (UI-only, not nav)
+        children: diseases.map(d => ({ name: d.name, key: d.key }))
     },
-    {
-        name: "Risk Map",
-        children: [
-            { name: "Upazila", href: "/risk-map/upazila" },
-            { name: "Community", href: "/risk-map/community" },
-        ],
-    },
-    {
-        name: "Prediction",
-        children: [
-            { name: "District", href: "/prediction/district" },
-            { name: "Upazila", href: "/diseases/predict/malaria" },
-        ],
-    },
-    { name: "Alert", href: "/alert" },
-    {
-        name: "Monitor",
-        children: [
-            { name: "Malaria", href: "/monitor/Malaria" },
-            { name: "Dengue", href: "/monitor/Dengue" },
-            { name: "AWD", href: "/monitor/awd" },
-        ],
-    },
-    { name: "CHW", href: "/chw_cds" },
+    { name: "Monitor", children: [{ name: "CDS", href: "/chw_cds" }] }
 ];
+
 
 export default function Header() {
     const [menuOpen, setMenuOpen] = useState(false);
     const [dropdownOpen, setDropdownOpen] = useState(null);
+    const [selectedDisease, setSelectedDisease] = useState("malaria");
     const location = useLocation();
+
+    const navItems = [
+        ...navItemsBase.slice(0, 1), // Data
+        {
+            ...navItemsBase[1],
+            // Render disease menu with select logic
+            render: () => (
+                <div className="relative z-10">
+                    <button
+                        onClick={() => setDropdownOpen(dropdownOpen === "Diseases" ? null : "Diseases")}
+                        className={`px-4 py-2 rounded-md transition ${dropdownOpen === "Diseases" ?
+                            "bg-white text-black" : "hover:bg-blue-600"} cursour-pointer`}
+                    >
+                        Diseases
+                    </button>
+                    {dropdownOpen === "Diseases" && (
+                        <div className="absolute z-[999] mt-2 bg-white text-black rounded-lg shadow-lg w-48 ">
+                            {diseases.map(d => (
+                                <button
+                                    key={d.key}
+                                    onClick={() => {
+                                        setSelectedDisease(d.key);
+                                        setDropdownOpen(null);
+                                    }}
+                                    className="flex items-center justify-between w-full px-4 py-2 text-base hover:bg-gray-100"
+                                >
+                                    {d.name}
+                                    {selectedDisease === d.key && <FaCheck className="text-green-600 ml-2" />}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )
+        },
+        {
+            name: "Risk Map",
+            children: riskOptions[selectedDisease]
+        },
+        {
+            name: "Prediction",
+            children: predictionOptions[selectedDisease]
+        },
+        {
+            name: "Alert",
+            children: alertOptions[selectedDisease]
+        },
+        navItemsBase[2] // Monitor
+    ];
+
 
     // Find active parent & child based on current URL
     const currentPath = location.pathname;
@@ -64,6 +115,7 @@ export default function Header() {
         }
     });
 
+
     return (
         <header className="bg-[#004bad] text-white shadow-md">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
@@ -72,7 +124,10 @@ export default function Header() {
                 {/* Desktop Nav */}
                 <nav className="hidden md:flex space-x-6 items-center text-lg">
                     {navItems.map((item) =>
-                        item.children ? (
+                        item.render ? (
+                            // Special Diseases go here (render: function returns element)
+                            <div key={item.name}>{item.render()}</div>
+                        ) : item.children ? (
                             <div key={item.name} className="relative">
                                 <button
                                     onClick={() =>
@@ -118,7 +173,6 @@ export default function Header() {
                     )}
                 </nav>
 
-                {/* User Icon */}
                 <div className="hidden md:block">
                     <FaUserCircle className="text-3xl cursor-pointer hover:text-gray-200" />
                 </div>
@@ -135,8 +189,27 @@ export default function Header() {
             {/* Mobile Menu */}
             {menuOpen && (
                 <div className="md:hidden bg-blue-600 text-lg">
+                    {/* Disease Picker for Mobile */}
+                    <div className="border-t border-blue-500 flex px-4 py-3 gap-3">
+                        <span className="font-semibold text-white">Disease:</span>
+                        {diseases.map(d => (
+                            <button
+                                key={d.key}
+                                onClick={() => {
+                                    setSelectedDisease(d.key);
+                                    setDropdownOpen(null);
+                                }}
+                                className={`px-3 py-1 rounded transition text-base ${selectedDisease === d.key ? "bg-white text-[#004bad]" : "hover:bg-white hover:text-[#004bad]"}`}
+                            >
+                                {d.name}
+                            </button>
+                        ))}
+                    </div>
                     {navItems.map((item) =>
-                        item.children ? (
+                        item.render ? (
+                            // skip diseases picker - already rendered above in mobile
+                            null
+                        ) : item.children ? (
                             <div key={item.name} className="border-t border-blue-500">
                                 <button
                                     onClick={() =>

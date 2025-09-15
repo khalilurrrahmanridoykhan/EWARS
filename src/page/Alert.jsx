@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { MapContainer, TileLayer, useMap, ZoomControl } from "react-leaflet";
+import { MapContainer, TileLayer, useMap } from "react-leaflet";
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush
 } from "recharts";
@@ -30,7 +30,7 @@ const monthNames = [
 ];
 
 
-export default function MalariaRiskTracker() {
+function Alert() {
     const [geoJson, setGeoJson] = useState(null);
     const [actualData, setActualData] = useState([]);
 
@@ -54,7 +54,6 @@ export default function MalariaRiskTracker() {
         [selectedMonth]
     );
 
-
     console.log("actualData:", actualData);
 
 
@@ -73,44 +72,44 @@ export default function MalariaRiskTracker() {
     }, []);
 
 
-    useEffect(() => {
-        // Only run when geoJson is loadedL.geo
-        if (!geoJson || !geoJson.features) return;
+    // useEffect(() => {
+    //     // Only run when geoJson is loaded
+    //     if (!geoJson || !geoJson.features) return;
 
-        // Get allowed UpazilaIDs
-        const allowedUpazilaIDs = new Set(
-            geoJson.features.map(f =>
-                String(f.properties?.UpazilaID)
-            )
-        );
+    //     // Get allowed UpazilaIDs
+    //     const allowedUpazilaIDs = new Set(
+    //         geoJson.features.map(f =>
+    //             String(f.properties?.UpazilaID)
+    //         )
+    //     );
 
-        axios
-            .get("/lmis/admin/mis-api-data")
-            .then(res => {
-                const rawData = res.data;
+    //     axios
+    //         .get("/lmis/admin/mis-api-data")
+    //         .then(res => {
+    //             const rawData = res.data;
 
-                // Map UpazillaID -> UpazilaID for uniformity
-                const normalized = rawData.map(d => ({
-                    ...d,
-                    UpazilaID: d.UpazilaID || d.UpazillaID // use either if present
-                }));
+    //             // Map UpazillaID -> UpazilaID for uniformity
+    //             const normalized = rawData.map(d => ({
+    //                 ...d,
+    //                 UpazilaID: d.UpazilaID || d.UpazillaID // use either if present
+    //             }));
 
-                const allowedUpazilaIDs = new Set(
-                    geoJson.features.map(f => String(f.properties?.UpazilaID))
-                );
+    //             const allowedUpazilaIDs = new Set(
+    //                 geoJson.features.map(f => String(f.properties?.UpazilaID))
+    //             );
 
-                const filtered = normalized.filter(d =>
-                    allowedUpazilaIDs.has(String(d.UpazilaID))
-                );
+    //             const filtered = normalized.filter(d =>
+    //                 allowedUpazilaIDs.has(String(d.UpazilaID))
+    //             );
 
-                setActualData(filtered);
-            })
-            .catch(e => {
-                setActualData([]);
-                console.error("Failed to load LMIS malaria data", e);
-                toast?.error("Failed to load LMIS malaria data");
-            });
-    }, [geoJson]);
+    //             setActualData(filtered);
+    //         })
+    //         .catch(e => {
+    //             setActualData([]);
+    //             console.error("Failed to load LMIS malaria data", e);
+    //             toast?.error("Failed to load LMIS malaria data");
+    //         });
+    // }, [geoJson]);
 
 
 
@@ -205,9 +204,9 @@ export default function MalariaRiskTracker() {
 
 
     return (
-        <div className="flex flex-col lg:flex-row">
+        <div className="flex flex-col h-screen lg:flex-row">
             {/* Sidebar */}
-            <aside className="w-full lg:w-[20%] lg:max-w-sm bg-blue-50 border-b lg:border-r border-gray-300 px-4 py-1 space-y-4">
+            <aside className="w-full lg:w-[20%] lg:max-w-sm bg-blue-50 border-b lg:border-r border-gray-300 p-4 space-y-4">
                 {/* <h1 className="text-xl font-bold text-blue-900">Malaria Risk Tracker</h1> */}
 
                 <div className="grid grid-cols-2 gap-4 lg:grid-cols-1">
@@ -236,12 +235,52 @@ export default function MalariaRiskTracker() {
                     <button onClick={handleGenerate} className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
                         Generate
                     </button>
+                    <button onClick={handleGenerate} className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
+                        Send Alert
+                    </button>
                 </div>
             </aside>
 
             {/* Main Content */}
             <main className="flex-1 px-4 overflow-y-auto">
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+                    <div className=" bg-white border rounded shadow p-4">
+                        <ResponsiveContainer width="100%" height={320}>
+                            <LineChart data={chartData}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="month" />
+                                <YAxis />
+                                <Tooltip />
+                                <Legend />
+                                <Line type="monotone" dataKey="threshold" stroke="#ef4444" /> {/* red */}
+                                <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={<BlinkingDot />} /> {/* blue */}
+                                <Line
+                                    type="monotone"
+                                    dataKey="actual"
+                                    stroke="#22c55e"
+                                    dot={<BlinkingDot />}
+                                />
+
+                                <Brush
+                                    dataKey="month"
+                                    height={40}
+                                    stroke="#6366f1"   // Indigo border
+                                    travellerWidth={12}
+                                    fill="#eef2ff"     // Soft background
+                                    tickFormatter={(val) => val.slice(0, 3)}
+                                >
+                                    {/* Mini chart inside brush */}
+                                    <LineChart data={chartData}>
+                                        <CartesianGrid strokeDasharray="2 2" strokeOpacity={0.2} />
+                                        <Line type="monotone" dataKey="threshold" stroke="#ef4444" dot={false} />
+                                        <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={false} />
+                                        <Line type="monotone" dataKey="actual" stroke="#22c55e" dot={false} />
+                                    </LineChart>
+                                </Brush>
+                            </LineChart>
+                        </ResponsiveContainer>
+                    </div>
+
                     {months.map((m, i) => (
                         <MapCard
                             key={`pred-${i}`}
@@ -254,7 +293,7 @@ export default function MalariaRiskTracker() {
                     ))}
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+                {/* <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
                     {months.map((m, i) => (
                         <MapCard
                             key={`act-${i}`}
@@ -265,44 +304,10 @@ export default function MalariaRiskTracker() {
                             type="actual"
                         />
                     ))}
-                </div>
+                </div> */}
 
-                <div className="mt-6 bg-white border rounded shadow p-4">
-                    <ResponsiveContainer width="100%" height={320}>
-                        <LineChart data={chartData}>
-                            <CartesianGrid strokeDasharray="3 3" />
-                            <XAxis dataKey="month" />
-                            <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Line type="monotone" dataKey="threshold" stroke="#ef4444" /> {/* red */}
-                            <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={<BlinkingDot />} /> {/* blue */}
-                            <Line
-                                type="monotone"
-                                dataKey="actual"
-                                stroke="#22c55e"
-                                dot={<BlinkingDot />}
-                            />
 
-                            <Brush
-                                dataKey="month"
-                                height={40}
-                                stroke="#6366f1"   // Indigo border
-                                travellerWidth={12}
-                                fill="#eef2ff"     // Soft background
-                                tickFormatter={(val) => val.slice(0, 3)}
-                            >
-                                {/* Mini chart inside brush */}
-                                <LineChart data={chartData}>
-                                    <CartesianGrid strokeDasharray="2 2" strokeOpacity={0.2} />
-                                    <Line type="monotone" dataKey="threshold" stroke="#ef4444" dot={false} />
-                                    <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={false} />
-                                    <Line type="monotone" dataKey="actual" stroke="#22c55e" dot={false} />
-                                </LineChart>
-                            </Brush>
-                        </LineChart>
-                    </ResponsiveContainer>
-                </div>
+
             </main>
         </div>
     );
@@ -456,7 +461,6 @@ function MonthPicker({ label, date, setDate }) {
 
 function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, actualMonth, type }) {
     const map = useMap();
-    const [bipList, setBipList] = useState([]);
 
     useEffect(() => {
         if (!geojson) return;
@@ -559,7 +563,14 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
                         <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
                         <td style="padding: 2px 4px;">${actual.CASEE}</td>
                     </tr>
-`;
+                    <tr>
+                        <td style="padding: 2px 4px;">Tests</td>
+                        <td style="padding: 2px 4px;">${actual.TEST}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 2px 4px;">Deaths</td>
+                        <td style="padding: 2px 4px;">${actual.DEATH}</td>
+                    </tr>`;
                     } else {
                         html += `
                     </table>
@@ -578,55 +589,12 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
         if (geojson.features.length > 0) {
             map.fitBounds(layer.getBounds());
         }
-        if (type === "forecast" && geojson && forecastResults && forecastResults.length) {
-            const bips = [];
-            geojson.features.forEach((feature) => {
-                const upa = feature?.properties?.UPA_NAME;
-                const pred = forecastResults.find(
-                    res =>
-                        res.upa_name?.trim().toLowerCase() === upa?.trim().toLowerCase() &&
-                        res.forecast_month === forecastMonth && Number(res.pred_cases) > 100
-                );
-                if (pred && feature.geometry) {
-                    let coords = [];
-                    if (feature.geometry.type === "Polygon") {
-                        coords = feature.geometry.coordinates[0];
-                    } else if (feature.geometry.type === "MultiPolygon") {
-                        coords = feature.geometry.coordinates[0][0];
-                    }
-                    // centroid as [lng, lat]
-                    const centroid = getPolygonCentroid(coords);
-                    bips.push({ center: [centroid[1], centroid[0]] }); // [lat, lng]
-                }
-            });
-            setBipList(bips);
-        } else {
-            setBipList([]);
-        }
-
         return () => {
             map.removeLayer(layer);
         };
-
     }, [geojson, map, forecastResults, forecastMonth, actualData, actualMonth, type]);
-    return (
-        <>
-            {type === "forecast" && bipList.map((bip, i) => (
-                <BippingMarker
-                    key={i}
-                    center={bip.center}
-                    color="#ff2222"
-                    size={32}
-                    borderColor="#fff"
-                    borderWidth={5}
-                    blinkSpeed={0.44}
-                    zIndex={1401}
-                />
-            ))}
-        </>
-    );
+    return null;
 }
-
 
 
 
@@ -669,8 +637,8 @@ function getMonthVariants(startDate) {
     const curr = new Date(currentYear, currentMonth, 1);
     const next = new Date(currentYear, currentMonth + 1, 1);
     return [
-        { label: `${monthNames[prev.getMonth()]} ${prev.getFullYear()}`, code: prev.toISOString().slice(0, 10) },
-        { label: `${monthNames[currentMonth]} ${currentYear}`, code: curr.toISOString().slice(0, 10) },
+        // { label: `${monthNames[prev.getMonth()]} ${prev.getFullYear()}`, code: prev.toISOString().slice(0, 10) },
+        // { label: `${monthNames[currentMonth]} ${currentYear}`, code: curr.toISOString().slice(0, 10) },
         { label: `${monthNames[next.getMonth()]} ${next.getFullYear()}`, code: next.toISOString().slice(0, 10) },
     ];
 }
@@ -725,8 +693,8 @@ function MapCard({
                 </button>
             </div>
             {!collapsed && (
-                <div className="h-56">
-                    <MapContainer center={[23.81, 90.41]} zoom={7} className="h-full w-full" >
+                <div className="h-[320px]">
+                    <MapContainer center={[23.81, 90.41]} zoom={7} className="h-full w-full" zoomControl={false}>
                         <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
                         {geojson && (
                             <GeoJSONLayer
@@ -738,7 +706,6 @@ function MapCard({
                                 type={type}
                             />
                         )}
-
                     </MapContainer>
                 </div>
             )}
@@ -788,64 +755,4 @@ function getPreviousMonthLabel(label) {
     return `${monthNames[monthIdx]} ${year}`;
 }
 
-function getPolygonCentroid(coords) {
-    let area = 0, cx = 0, cy = 0;
-    for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
-        const [x0, y0] = coords[j], [x1, y1] = coords[i];
-        const f = x0 * y1 - x1 * y0;
-        area += f;
-        cx += (x0 + x1) * f;
-        cy += (y0 + y1) * f;
-    }
-    area /= 2;
-    cx /= (6 * area);
-    cy /= (6 * area);
-    return [cx, cy]; // [lng, lat]
-}
-
-
-function BippingMarker({
-    center,
-    color = "#ef4444", // plain color instead of Tailwind class
-    size = 28,
-    borderColor = "rgba(255,255,255,0.6)", // softer white
-    borderWidth = 2, // thinner border
-    zIndex = 1200,
-}) {
-    const map = useMap();
-
-    useEffect(() => {
-        if (!center) return;
-
-        const el = document.createElement("div");
-        el.innerHTML = `
-      <div style="position:relative;width:${size}px;height:${size}px;">
-        <div style="
-          position:absolute;top:0;left:0;right:0;bottom:0;
-          background:${color};
-          opacity:0.7;
-          border-radius:50%;
-          animation:bip-pulse 1.2s infinite alternate;
-          width:${size}px;height:${size}px;
-        "></div>
-
-      </div>
-    `;
-
-        const marker = L.marker(center, {
-            icon: L.divIcon({
-                className: "",
-                html: el,
-                iconSize: [size, size],
-                iconAnchor: [size / 2, size / 2],
-            }),
-            interactive: false,
-        }).addTo(map);
-
-        marker.setZIndexOffset(zIndex);
-
-        return () => marker.remove();
-    }, [center, color, size, borderColor, borderWidth, zIndex, map]);
-
-    return null;
-}
+export default Alert

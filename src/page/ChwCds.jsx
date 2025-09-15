@@ -50,7 +50,7 @@ function ChwCds() {
     useEffect(() => {
         const fetchData = async () => {
             try {
-                const token = "6d7a12ff7d2252aab5622eaddd6fb5c8798706ba";
+                const token = "cb1aa06c8b01ca913f88b1517f43e70dbba03b97";
                 const response = await axios.get(
                     "https://admin2.commicplan.com/api/api/forms/1079/",
                     {
