@@ -1,8 +1,12 @@
 {
     "rewrites": [
         {
-            "source": "/(.*)",
-            "destination": "/"
+            "source": "/api/(.*)",
+            "destination": "http://api1.commicplan.com/$1"
+        },
+        {
+            "source": "/lmis/(.*)",
+            "destination": "https://lmis.nmcp.gov.bd/$1"
         }
     ]
 }
