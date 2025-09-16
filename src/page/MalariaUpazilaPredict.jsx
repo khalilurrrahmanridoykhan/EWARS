@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, useMap, ZoomControl } from "react-leaflet";
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush
@@ -29,6 +29,13 @@ const monthNames = [
     "July", "August", "September", "October", "November", "December"
 ];
 
+const COLORS = [
+    "#6366f1", "#22c55e", "#eab308", "#f43f5e", "#0ea5e9", "#b91c1c",
+    "#06b6d4", "#facc15", "#84cc16", "#3b82f6", "#d97706", "#10b981"
+    // ...add enough for your max upazilas; or use d3-scheme
+];
+const chartColor = idx => COLORS[idx % COLORS.length];
+
 
 export default function MalariaRiskTracker() {
     const [geoJson, setGeoJson] = useState(null);
@@ -54,6 +61,8 @@ export default function MalariaRiskTracker() {
         [selectedMonth]
     );
 
+
+    const [threshold, setThreshold] = useState(100);
 
     console.log("actualData:", actualData);
 
@@ -203,6 +212,24 @@ export default function MalariaRiskTracker() {
         return { ...geoJson, features };
     }, [geoJson, selectedDivisions, selectedDistricts, selectedUpazilas]);
 
+    const upazilas = useMemo(() => (
+        Array.from(new Set(forecastResults.map(d => d.upa_name)))
+    ), [forecastResults]);
+
+    const chartSeriesData = useMemo(() => {
+        return months.map(month => {
+            const entry = { month: month.label, threshold };
+            upazilas.forEach(upz => {
+                // Find this upazila's prediction for this month
+                const pred = forecastResults.find(d =>
+                    d.upa_name === upz && d.forecast_month === month.code
+                );
+                entry[upz] = pred ? Math.round(pred.pred_cases) : null;
+            });
+            return entry;
+        });
+    }, [months, upazilas, forecastResults, threshold]);
+
 
     return (
         <div className="flex flex-col lg:flex-row">
@@ -233,6 +260,20 @@ export default function MalariaRiskTracker() {
                     />
 
                     <MonthPicker label="Predict Month" date={selectedMonth} setDate={setSelectedMonth} />
+                    <div className="flex items-center gap-2 mb-4">
+                        <label className="font-semibold text-sm text-black" htmlFor="threshold-input">
+                            Threshold:
+                        </label>
+                        <input
+                            id="threshold-input"
+                            type="number"
+                            value={threshold}
+                            min={0}
+                            onChange={e => setThreshold(Number(e.target.value))}
+                            className="border bg-white rounded px-2 py-1 w-20"
+                            style={{ fontSize: "14px" }}
+                        />
+                    </div>
                     <button onClick={handleGenerate} className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
                         Generate
                     </button>
@@ -250,12 +291,14 @@ export default function MalariaRiskTracker() {
                             forecastResults={forecastResults}
                             forecastMonth={m.code}
                             type="forecast"
+                            threshold={threshold}
                         />
                     ))}
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
                     {months.map((m, i) => (
+
                         <MapCard
                             key={`act-${i}`}
                             title={`Actual Case – ${getPreviousMonthLabel(m.label)}`}
@@ -263,46 +306,70 @@ export default function MalariaRiskTracker() {
                             actualData={actualData}
                             actualMonth={m.code}
                             type="actual"
+                            threshold={threshold}
                         />
                     ))}
                 </div>
 
-                <div className="mt-6 bg-white border rounded shadow p-4">
+                <div className="bg-white border rounded shadow p-4">
                     <ResponsiveContainer width="100%" height={320}>
-                        <LineChart data={chartData}>
+                        <LineChart data={chartSeriesData}>
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="month" />
                             <YAxis />
                             <Tooltip />
                             <Legend />
-                            <Line type="monotone" dataKey="threshold" stroke="#ef4444" /> {/* red */}
-                            <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={<BlinkingDot />} /> {/* blue */}
                             <Line
                                 type="monotone"
-                                dataKey="actual"
-                                stroke="#22c55e"
-                                dot={<BlinkingDot />}
+                                dataKey="threshold"
+                                stroke="#ef4444"
+                                isAnimationActive={false}
+                                strokeWidth={2}
+                                dot={false}
                             />
-
+                            {upazilas.map((upz, idx) => (
+                                <Line
+                                    key={upz}
+                                    type="monotone"
+                                    dataKey={upz}
+                                    name={upz}
+                                    stroke={chartColor(idx)}
+                                    dot={<BlinkingDot />}
+                                    strokeWidth={2}
+                                    connectNulls
+                                    isAnimationActive={false}
+                                />
+                            ))}
                             <Brush
                                 dataKey="month"
                                 height={40}
-                                stroke="#6366f1"   // Indigo border
+                                stroke="#6366f1"
                                 travellerWidth={12}
-                                fill="#eef2ff"     // Soft background
-                                tickFormatter={(val) => val.slice(0, 3)}
+                                fill="#eef2ff"
+                                tickFormatter={val => val.slice(0, 3)}
                             >
-                                {/* Mini chart inside brush */}
-                                <LineChart data={chartData}>
+                                <LineChart data={chartSeriesData}>
                                     <CartesianGrid strokeDasharray="2 2" strokeOpacity={0.2} />
                                     <Line type="monotone" dataKey="threshold" stroke="#ef4444" dot={false} />
-                                    <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={false} />
-                                    <Line type="monotone" dataKey="actual" stroke="#22c55e" dot={false} />
+                                    {upazilas.map((upz, idx) => (
+                                        <Line
+                                            key={upz}
+                                            type="monotone"
+                                            dataKey={upz}
+                                            name={upz}
+                                            stroke={chartColor(idx)}
+                                            dot={false}
+                                            strokeWidth={2}
+                                            connectNulls
+                                            isAnimationActive={false}
+                                        />
+                                    ))}
                                 </LineChart>
                             </Brush>
                         </LineChart>
                     </ResponsiveContainer>
                 </div>
+
             </main>
         </div>
     );
@@ -363,152 +430,123 @@ function MonthPicker({ label, date, setDate }) {
     )
 }
 
-// function GeoJSONLayer({ geojson, forecastResults, forecastMonth }) {
-//     const map = useMap();
 
-//     useEffect(() => {
-//         if (!geojson) return;
-
-//         function getPrediction(upa) {
-//             if (!forecastResults) return null;
-//             // Robust case and space comparison:
-//             return forecastResults.find(
-//                 res =>
-//                     res.upa_name.trim().toLowerCase() === upa.trim().toLowerCase() &&
-//                     res.forecast_month === forecastMonth
-//             );
-//         }
-
-
-
-//         map.eachLayer(layer => {
-//             if (layer.feature) map.removeLayer(layer);
-//         });
-
-//         const layer = L.geoJSON(geojson, {
-//             style: feature => {
-//                 const upa = feature?.properties?.UPA_NAME;
-//                 const pred = getPrediction(upa);
-//                 let fillColor = "#eee";
-//                 if (pred && pred.pred_cases !== undefined) {
-//                     const cases = Number(pred.pred_cases) || 0;
-//                     fillColor = cases > 100 ? "#ef4444" : (cases > 50 ? "#fbbf24" : "#22c55e");
-//                 }
-//                 return {
-//                     color: "#000",
-//                     weight: 0.2,
-//                     fillColor,
-//                     fillOpacity: 0.7,
-//                 };
-//             },
-//             onEachFeature: (feature, lyr) => {
-//                 const upa = feature?.properties?.UPA_NAME;
-//                 const pred = getPrediction(upa);
-
-//                 let html = `
-//         <div style="font-family: Arial, sans-serif; font-size: 11px; color: #333; max-width: 180px;">
-//             <table style="border-collapse: collapse; width: 100%;">
-//                 <tr>
-//                     <td style="padding: 2px 4px; font-weight: bold;">Upazila</td>
-//                     <td style="padding: 2px 4px;">${upa || "Unknown"}</td>
-//                 </tr>
-//     `;
-
-//                 if (pred && pred.pred_cases !== undefined) {
-//                     html += `
-//                 <tr>
-//                     <td style="padding: 2px 4px; font-weight: bold;">Month</td>
-//                     <td style="padding: 2px 4px;">${pred.forecast_month}</td>
-//                 </tr>
-//                 <tr>
-//                     <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
-//                     <td style="padding: 2px 4px;">${pred.pred_cases}</td>
-//                 </tr>
-//             </table>
-//         </div>
-//         `;
-//                 } else {
-//                     html += `
-//             </table>
-//             <div style="margin-top: 2px; font-style: italic; color: #777;">
-//                 No prediction data
-//             </div>
-//         </div>
-//         `;
-//                 }
-
-//                 lyr.bindPopup(html);
-//             }
-
-//             ,
-//         });
-//         layer.addTo(map);
-
-//         if (geojson.features.length > 0) {
-//             map.fitBounds(layer.getBounds());
-//         }
-//         return () => {
-//             map.removeLayer(layer);
-//         };
-//     }, [geojson, map, forecastResults, forecastMonth]);
-//     return null;
-// }
-
-function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, actualMonth, type }) {
+function GeoJSONLayer({
+    geojson,
+    forecastResults,
+    forecastMonth,
+    actualData,
+    actualMonth,
+    type,
+    threshold = 100,
+}) {
     const map = useMap();
-    const [bipList, setBipList] = useState([]);
+    const [zoom, setZoom] = useState(map.getZoom());
+    const geoJsonRef = useRef(null);
+    const labelsRef = useRef([]);
 
+    useEffect(() => {
+        // Sync zoom state
+        const handleZoom = () => setZoom(map.getZoom());
+        map.on("zoomend", handleZoom);
+        return () => map.off("zoomend", handleZoom);
+    }, [map]);
+
+    function getActual(upaID) {
+        if (!actualData || !actualMonth) return null;
+        const [year, monthNum] = actualMonth.split("-");
+        const monthName = monthNames[parseInt(monthNum, 10) - 1];
+        return actualData.find(
+            d =>
+                String(d.UpazilaID) === String(upaID) &&
+                String(d.ReportYear) === year &&
+                String(d.ReportMonth).toLowerCase() === monthName.toLowerCase()
+        );
+    }
+
+    function getPrediction(upa) {
+        if (!forecastResults) return null;
+        return forecastResults.find(
+            res =>
+                res.upa_name.trim().toLowerCase() === upa.trim().toLowerCase() &&
+                res.forecast_month === forecastMonth
+        );
+    }
+
+    function getCentroid(geometry) {
+        let coords = [];
+        if (geometry.type === "Polygon") coords = geometry.coordinates[0];
+        else if (geometry.type === "MultiPolygon") coords = geometry.coordinates[0][0];
+        if (!coords.length) return [0, 0];
+        let area = 0, cx = 0, cy = 0;
+        for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
+            const [x0, y0] = coords[j], [x1, y1] = coords[i];
+            const f = x0 * y1 - x1 * y0;
+            area += f;
+            cx += (x0 + x1) * f;
+            cy += (y0 + y1) * f;
+        }
+        area /= 2;
+        cx /= 6 * area;
+        cy /= 6 * area;
+        return [cx, cy];
+    }
+
+    const bips = useMemo(() => {
+        if (!geojson) return [];
+        return geojson.features.map(feature => {
+            const upa = feature.properties.UPA_NAME;
+            const upaID = feature.properties.UpazilaID;
+            let cases = null;
+            if (type === "forecast") {
+                const pred = getPrediction(upa);
+                cases = pred && pred.pred_cases !== undefined ? Number(pred.pred_cases) : 0;
+            } else if (type === "actual") {
+                const actual = getActual(upaID);
+                cases = actual && actual.CASEE !== undefined ? Number(actual.CASEE) : 0;
+            }
+            if (cases > threshold && feature.geometry) {
+                const centroid = getCentroid(feature.geometry);
+                return { center: [centroid[1], centroid[0]], upa };
+            }
+            return null;
+        }).filter(Boolean);
+    }, [geojson, forecastResults, forecastMonth, actualData, actualMonth, type, threshold]);
+
+    // Remove all polygon/label layers before new draw
     useEffect(() => {
         if (!geojson) return;
 
-        function getActual(upaID) {
-            if (!actualData || !actualMonth) return null;
-
-            const [year, monthNum] = actualMonth.split("-");
-            const monthName = monthNames[parseInt(monthNum, 10) - 1];
-
-            return actualData.find(
-                d =>
-                    String(d.UpazilaID) === String(upaID) && // <--- Use ID for matching
-                    String(d.ReportYear) === year &&
-                    String(d.ReportMonth).toLowerCase() === monthName.toLowerCase()
-            );
-        }
-
-
-        function getPrediction(upa) {
-            if (!forecastResults) return null;
-            return forecastResults.find(
-                res =>
-                    res.upa_name.trim().toLowerCase() === upa.trim().toLowerCase() &&
-                    res.forecast_month === forecastMonth
-            );
-        }
-
-        map.eachLayer(layer => {
-            if (layer.feature) map.removeLayer(layer);
-        });
+        if (geoJsonRef.current) map.removeLayer(geoJsonRef.current);
+        labelsRef.current.forEach(marker => map.removeLayer(marker));
+        labelsRef.current = [];
 
         const layer = L.geoJSON(geojson, {
             style: feature => {
-                // Use UpazilaID for actual data
                 const upaID = feature?.properties?.UpazilaID;
                 const upa = feature?.properties?.UPA_NAME;
-                let fillColor = "#eee";
                 let cases = null;
+
                 if (type === "forecast") {
                     const pred = getPrediction(upa);
                     if (pred && pred.pred_cases !== undefined) {
                         cases = Number(pred.pred_cases) || 0;
-                        fillColor = cases > 100 ? "#ef4444" : cases > 50 ? "#fbbf24" : "#22c55e";
                     }
                 } else if (type === "actual") {
-                    const actual = getActual(upaID); // <-- Pass UpazilaID, NOT upa name!
+                    const actual = getActual(upaID);
                     if (actual && actual.CASEE !== undefined) {
                         cases = Number(actual.CASEE) || 0;
-                        fillColor = cases > 100 ? "#ef4444" : cases > 50 ? "#fbbf24" : "#22c55e";
                     }
                 }
+
+                let fillColor = "#cccccc";
+                if (cases >= 200) fillColor = "#bd0026";
+                else if (cases >= 100) fillColor = "#f03b20";
+                else if (cases >= 50) fillColor = "#fd8d3c";
+                else if (cases >= 11) fillColor = "#fecc5c";
+                else if (cases >= 1) fillColor = "#ffffb2";
+                // 0–10 stays #ffffb2
+
                 return {
                     color: "#000",
                     weight: 0.2,
@@ -519,109 +557,123 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
             onEachFeature: (feature, lyr) => {
                 const upaID = feature?.properties?.UpazilaID;
                 const upa = feature?.properties?.UPA_NAME;
+
+                let cases = null;
+                if (type === "forecast") {
+                    const pred = getPrediction(upa);
+                    if (pred && pred.pred_cases !== undefined)
+                        cases = Math.round(pred.pred_cases);
+                } else if (type === "actual") {
+                    const actual = getActual(upaID);
+                    if (actual && actual.CASEE !== undefined)
+                        cases = Math.round(actual.CASEE);
+                }
+
+                // --- POPUP INFO ---
                 let html =
                     `<div style="font-family: Arial, sans-serif; font-size: 11px; color: #333; max-width: 180px;">
             <table style="border-collapse: collapse; width: 100%;">
             <tr>
-                <td style="padding: 2px 4px; font-weight: bold;">Upazila</td>
-                <td style="padding: 2px 4px;">${upa || "Unknown"}</td>
+              <td style="padding: 2px 4px; font-weight: bold;">Upazila</td>
+              <td style="padding: 2px 4px;">${upa || "Unknown"}</td>
             </tr>`;
-
                 if (type === "forecast") {
                     const pred = getPrediction(upa);
                     if (pred && pred.pred_cases !== undefined) {
                         html += `
-                    <tr>
-                        <td style="padding: 2px 4px; font-weight: bold;">Month</td>
-                        <td style="padding: 2px 4px;">${pred.forecast_month}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
-                       <td style="padding: 2px 4px;">${pred.pred_cases.toFixed(0)}</td>
-
-                    </tr>`;
+              <tr>
+                  <td style="padding: 2px 4px; font-weight: bold;">Month</td>
+                  <td style="padding: 2px 4px;">${pred.forecast_month}</td>
+              </tr>
+              <tr>
+                  <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
+                  <td style="padding: 2px 4px;">${pred.pred_cases.toFixed(0)}</td>
+              </tr>`;
                     } else {
-                        html += `
-                    </table>
-                    <div style="margin-top: 2px; font-style: italic; color: #777;">
-                        No prediction data
-                    </div>
-                    </div>`;
+                        html += `</table>
+              <div style="margin-top: 2px; font-style: italic; color: #777;">
+                No prediction data
+              </div>
+            </div>`;
                     }
                 } else if (type === "actual") {
-                    const actual = getActual(upaID); // <-- Pass UpazilaID here too!
+                    const actual = getActual(upaID);
                     if (actual && actual.CASEE !== undefined) {
                         html += `
-                    <tr>
-                        <td style="padding: 2px 4px; font-weight: bold;">Month</td>
-                        <td style="padding: 2px 4px;">${actual.ReportMonth} ${actual.ReportYear}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
-                        <td style="padding: 2px 4px;">${actual.CASEE}</td>
-                    </tr>
-`;
+              <tr>
+                  <td style="padding: 2px 4px; font-weight: bold;">Month</td>
+                  <td style="padding: 2px 4px;">${actual.ReportMonth} ${actual.ReportYear}</td>
+              </tr>
+              <tr>
+                  <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
+                  <td style="padding: 2px 4px;">${actual.CASEE}</td>
+              </tr>`;
                     } else {
-                        html += `
-                    </table>
-                    <div style="margin-top: 2px; font-style: italic; color: #777;">
-                        No actual data
-                    </div>
-                    </div>`;
+                        html += `</table>
+              <div style="margin-top: 2px; font-style: italic; color: #777;">
+                No actual data
+              </div>
+            </div>`;
                     }
                 }
-
                 lyr.bindPopup(html);
-            },
-        });
-        layer.addTo(map);
 
-        if (geojson.features.length > 0) {
-            map.fitBounds(layer.getBounds());
-        }
-        if (type === "forecast" && geojson && forecastResults && forecastResults.length) {
-            const bips = [];
-            geojson.features.forEach((feature) => {
-                const upa = feature?.properties?.UPA_NAME;
-                const pred = forecastResults.find(
-                    res =>
-                        res.upa_name?.trim().toLowerCase() === upa?.trim().toLowerCase() &&
-                        res.forecast_month === forecastMonth && Number(res.pred_cases) > 100
-                );
-                if (pred && feature.geometry) {
-                    let coords = [];
-                    if (feature.geometry.type === "Polygon") {
-                        coords = feature.geometry.coordinates[0];
-                    } else if (feature.geometry.type === "MultiPolygon") {
-                        coords = feature.geometry.coordinates[0][0];
-                    }
-                    // centroid as [lng, lat]
-                    const centroid = getPolygonCentroid(coords);
-                    bips.push({ center: [centroid[1], centroid[0]] }); // [lat, lng]
+                // --- ZOOM LABELS ---
+                if (cases !== null && zoom >= 8) {
+                    const centroid = getCentroid(feature.geometry);
+                    const div = L.divIcon({
+                        className: "",
+                        html: `<div style="
+        color:#fff;
+        font-size:13px;
+        font-weight:600;
+        text-shadow: 0 0 3px #000; /* makes white text readable */
+    ">
+      ${cases}
+    </div>`,
+                        iconAnchor: [0, 0], // anchor top-left so text isn’t misaligned
+                    });
+
+                    const marker = L.marker([centroid[1], centroid[0]], {
+                        icon: div,
+                        interactive: false,
+                    });
+                    marker.addTo(map);
+                    labelsRef.current.push(marker);
                 }
-            });
-            setBipList(bips);
-        } else {
-            setBipList([]);
-        }
+            }
+        });
+
+        layer.addTo(map);
+        geoJsonRef.current = layer;
+        if (geojson.features.length > 0) map.fitBounds(layer.getBounds());
 
         return () => {
             map.removeLayer(layer);
+            labelsRef.current.forEach(m => map.removeLayer(m));
+            labelsRef.current = [];
         };
+    }, [geojson, map, forecastResults, forecastMonth, actualData, actualMonth, type, threshold]);
 
-    }, [geojson, map, forecastResults, forecastMonth, actualData, actualMonth, type]);
+    // Toggle label marker visibility on zoom change
+    useEffect(() => {
+        (labelsRef.current || []).forEach(marker => {
+            if (zoom < 9) map.removeLayer(marker);
+            else if (!map.hasLayer(marker)) marker.addTo(map);
+        });
+    }, [zoom, map]);
+
     return (
         <>
-            {type === "forecast" && bipList.map((bip, i) => (
+            {bips.map((bip, i) => (
                 <BippingMarker
-                    key={i}
+                    key={bip.upa + i}
                     center={bip.center}
-                    color="#ff2222"
+                    color="#ef4444"
                     size={32}
                     borderColor="#fff"
-                    borderWidth={5}
-                    blinkSpeed={0.44}
-                    zIndex={1401}
+                    borderWidth={4}
+                    zIndex={1400}
                 />
             ))}
         </>
@@ -706,7 +758,8 @@ function MapCard({
     forecastMonth,
     actualData,
     actualMonth,
-    type
+    type,
+    threshold = 100,
 }) {
     // NEW: Collapsed state, default open
     const [collapsed, setCollapsed] = useState(false);
@@ -728,6 +781,52 @@ function MapCard({
             {!collapsed && (
                 <div className="h-56">
                     <MapContainer center={[23.81, 90.41]} zoom={7} className="h-full w-full" >
+                        <div style={{
+                            position: "absolute", top: 6, right: 6, zIndex: 3001,
+                            background: "#fff", padding: "2px 6px", borderRadius: 6,
+                            boxShadow: "0 1px 4px #0001", fontSize: 10, lineHeight: 1.18, border: "1px solid #eee"
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#cccccc", marginRight: 3,
+                                    borderRadius: 2, border: "1px solid #bbb"
+                                }} /> 0
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#ffffb2", marginRight: 3,
+                                    borderRadius: 2, border: "1px solid #ddd"
+                                }} /> 1–10
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#fecc5c", marginRight: 3, borderRadius: 2
+                                }} /> 11–49
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#fd8d3c", marginRight: 3, borderRadius: 2
+                                }} /> 50–99
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#f03b20", marginRight: 3, borderRadius: 2
+                                }} /> 100–199
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#bd0026", marginRight: 3, borderRadius: 2
+                                }} /> 200+
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 1 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#bd0026",
+                                    borderRadius: "50%", boxShadow: "0 0 0 1px #fff", animation: "bip-pulse 1s infinite alternate"
+                                }} /> threshold
+                            </div>
+                        </div>
+
+
                         <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
                         {geojson && (
                             <GeoJSONLayer
@@ -737,6 +836,7 @@ function MapCard({
                                 actualData={type === 'actual' ? actualData : undefined}
                                 actualMonth={type === 'actual' ? actualMonth : undefined}
                                 type={type}
+                                threshold={threshold}
                             />
                         )}
 
@@ -775,6 +875,8 @@ const BlinkingDot = ({ cx, cy, value, payload }) => {
         />
     );
 };
+
+
 
 function getPreviousMonthLabel(label) {
     // Example: input = "January 2025"

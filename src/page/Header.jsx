@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { HiMenu, HiX } from "react-icons/hi";
 import { FaUserCircle } from "react-icons/fa";
 import { FaCheck } from "react-icons/fa6";
@@ -46,13 +46,29 @@ export default function Header() {
     const [selectedDisease, setSelectedDisease] = useState("malaria");
     const location = useLocation();
 
+    const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+    const avatarMenuRef = useRef();
+
+
+    useEffect(() => {
+        const handler = (e) => {
+            // close menu if clicking outside
+            if (avatarMenuOpen && avatarMenuRef.current && !avatarMenuRef.current.contains(e.target)) {
+                setAvatarMenuOpen(false);
+            }
+        };
+        window.addEventListener("mousedown", handler);
+        return () => window.removeEventListener("mousedown", handler);
+    }, [avatarMenuOpen]);
+
+
     const navItems = [
         ...navItemsBase.slice(0, 1), // Data
         {
             ...navItemsBase[1],
             // Render disease menu with select logic
             render: () => (
-                <div className="relative z-10">
+                <div className="relative z-[9999]">
                     <button
                         onClick={() => setDropdownOpen(dropdownOpen === "Diseases" ? null : "Diseases")}
                         className={`px-4 py-2 rounded-md transition ${dropdownOpen === "Diseases" ?
@@ -173,8 +189,22 @@ export default function Header() {
                     )}
                 </nav>
 
-                <div className="hidden md:block">
-                    <FaUserCircle className="text-3xl cursor-pointer hover:text-gray-200" />
+                <div className="hidden md:block relative" ref={avatarMenuRef}>
+                    <FaUserCircle
+                        className="text-3xl cursor-pointer hover:text-gray-200"
+                        onClick={() => setAvatarMenuOpen((s) => !s)}
+                    />
+                    {avatarMenuOpen && (
+                        <div className="absolute right-0 mt-3 w-48 bg-white text-black rounded shadow z-50 py-2">
+                            <Link
+                                to="/model"
+                                className="block w-full px-4 py-2 text-left hover:bg-blue-50 text-sm"
+                                onClick={() => setAvatarMenuOpen(false)}
+                            >
+                                About Our Model
+                            </Link>
+                        </div>
+                    )}
                 </div>
 
                 {/* Mobile Menu Button */}

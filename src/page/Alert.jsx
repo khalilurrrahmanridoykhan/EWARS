@@ -33,8 +33,6 @@ const EMAILS = [
     { email: "sabberrahman.contact@gmail.com", label: "District Manager" },
     { email: "hasibulahmedpulok@gmail.com", label: "Ministry Official" },
     { email: "sajidgeo1707@gmail.com", label: "Ministry Official" },
-    { email: "user4@example.com", label: "Emergency Cell" },
-    { email: "user5@example.com", label: "Outreach Nurse" },
 ];
 
 const COLORS = [
