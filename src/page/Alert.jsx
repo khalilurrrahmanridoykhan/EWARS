@@ -29,6 +29,20 @@ const monthNames = [
     "July", "August", "September", "October", "November", "December"
 ];
 
+const EMAILS = [
+    { email: "sabberrahman.contact@gmail.com", label: "District Manager" },
+    { email: "hasibulahmedpulok@gmail.com", label: "Ministry Official" },
+    { email: "sajidgeo1707@gmail.com", label: "Ministry Official" },
+    { email: "user4@example.com", label: "Emergency Cell" },
+    { email: "user5@example.com", label: "Outreach Nurse" },
+];
+
+const COLORS = [
+    "#6366f1", "#22c55e", "#eab308", "#f43f5e", "#0ea5e9", "#b91c1c",
+    "#06b6d4", "#facc15", "#84cc16", "#3b82f6", "#d97706", "#10b981"
+    // ...add enough for your max upazilas; or use d3-scheme
+];
+const chartColor = idx => COLORS[idx % COLORS.length];
 
 function Alert() {
     const [geoJson, setGeoJson] = useState(null);
@@ -55,6 +69,16 @@ function Alert() {
     );
 
     const [threshold, setThreshold] = useState(100);
+
+
+    const [alertModal, setAlertModal] = useState(false);
+    const [mailRecipients, setMailRecipients] = useState(EMAILS.map(e => e.email)); // all selected by default
+    const [mailSubject, setMailSubject] = useState("Malaria Prediction Alert");
+    const [mailBody, setMailBody] = useState("");
+    const [selectedUpazilasAlert, setSelectedUpazilasAlert] = useState([]); // for selecting data to include
+
+    const [customBody, setCustomBody] = useState(false);
+
 
 
     console.log("actualData:", actualData);
@@ -237,6 +261,34 @@ function Alert() {
     }, [forecastResults, months, threshold]);
 
 
+    const upazilaAlertOptions = useMemo(
+        () => Array.from(new Set(
+            (forecastResults || []).map(d => d.upa_name)
+        )),
+        [forecastResults]
+    );
+
+    // Get unique upazilas from forecastResults (user's selected ones)
+    const upazilas = useMemo(() => (
+        Array.from(new Set(forecastResults.map(d => d.upa_name)))
+    ), [forecastResults]);
+
+    // Chart X axis: months as before
+    const monthCodes = months.map(m => m.code);
+
+    const chartSeriesData = useMemo(() => {
+        return months.map(month => {
+            const entry = { month: month.label, threshold };
+            upazilas.forEach(upz => {
+                // Find this upazila's prediction for this month
+                const pred = forecastResults.find(d =>
+                    d.upa_name === upz && d.forecast_month === month.code
+                );
+                entry[upz] = pred ? Math.round(pred.pred_cases) : null;
+            });
+            return entry;
+        });
+    }, [months, upazilas, forecastResults, threshold]);
 
     return (
         <div className="flex flex-col h-screen lg:flex-row">
@@ -284,7 +336,14 @@ function Alert() {
                     <button onClick={handleGenerate} className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
                         Generate
                     </button>
-                    <button onClick={handleGenerate} className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
+                    <button
+                        onClick={() => {
+                            setSelectedUpazilasAlert(upazilaAlertOptions); // Preselect all
+                            setMailBody(""); // or build initial if wanted
+                            setAlertModal(true);
+                        }}
+
+                        className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
                         Send Alert
                     </button>
                 </div>
@@ -295,31 +354,57 @@ function Alert() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
                     <div className=" bg-white border rounded shadow p-4">
                         <ResponsiveContainer width="100%" height={320}>
-                            <LineChart data={dynamicChartData}>
+                            <LineChart data={chartSeriesData}>
                                 <CartesianGrid strokeDasharray="3 3" />
                                 <XAxis dataKey="month" />
                                 <YAxis />
                                 <Tooltip />
                                 <Legend />
-                                <Line type="monotone" dataKey="threshold" stroke="#ef4444" /> {/* red */}
-                                <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={<BlinkingDot />} /> {/* blue */}
+                                <Line type="monotone" dataKey="threshold" stroke="#ef4444" isAnimationActive={false} strokeWidth={2} dot={false} />
+
+                                {upazilas.map((upz, idx) => (
+                                    <Line
+                                        key={upz}
+                                        type="monotone"
+                                        dataKey={upz}
+                                        name={upz}
+                                        stroke={chartColor(idx)}
+                                        dot={<BlinkingDot />}
+                                        strokeWidth={2}
+                                        connectNulls
+                                        isAnimationActive={false}
+                                    />
+                                ))}
 
                                 <Brush
                                     dataKey="month"
                                     height={40}
-                                    stroke="#6366f1"   // Indigo border
+                                    stroke="#6366f1"
                                     travellerWidth={12}
-                                    fill="#eef2ff"     // Soft background
-                                    tickFormatter={(val) => val.slice(0, 3)}
+                                    fill="#eef2ff"
+                                    tickFormatter={val => val.slice(0, 3)}
                                 >
-                                    {/* Mini chart inside brush */}
-                                    <LineChart data={chartData}>
+                                    <LineChart data={chartSeriesData}>
                                         <CartesianGrid strokeDasharray="2 2" strokeOpacity={0.2} />
                                         <Line type="monotone" dataKey="threshold" stroke="#ef4444" dot={false} />
-                                        <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={false} />
+                                        {upazilas.map((upz, idx) => (
+                                            <Line
+                                                key={upz}
+                                                type="monotone"
+                                                dataKey={upz}
+                                                name={upz}
+                                                stroke={chartColor(idx)}
+                                                dot={false}
+                                                strokeWidth={2}
+                                                connectNulls
+                                                isAnimationActive={false}
+                                            />
+                                        ))}
                                     </LineChart>
                                 </Brush>
+
                             </LineChart>
+
                         </ResponsiveContainer>
                     </div>
 
@@ -353,6 +438,157 @@ function Alert() {
 
 
             </main>
+            {alertModal && (
+                <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40">
+                    {/* Modal Box */}
+                    <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-2xl h-[80%] flex flex-col overflow-hidden animate-in fade-in duration-200">
+
+                        {/* Header */}
+                        <div className="flex items-center justify-between border-b px-5 py-3 bg-gray-50">
+                            <h2 className="font-semibold text-lg">📧 Send Alert Email</h2>
+                            <button
+                                onClick={() => setAlertModal(false)}
+                                className="p-2 rounded-full hover:bg-gray-200"
+                            >
+                                ✖
+                            </button>
+                        </div>
+
+                        {/* Scrollable Content */}
+                        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+
+                            {/* Recipients */}
+                            <div>
+                                <label className="font-medium text-sm block mb-1">Recipients:</label>
+                                <div className="space-y-2">
+                                    {EMAILS.map(e => (
+                                        <label key={e.email} className="flex items-center gap-2">
+                                            <input
+                                                type="checkbox"
+                                                className="h-4 w-4 accent-blue-600"
+                                                checked={mailRecipients.includes(e.email)}
+                                                onChange={ev =>
+                                                    setMailRecipients(r =>
+                                                        ev.target.checked
+                                                            ? [...r, e.email]
+                                                            : r.filter(x => x !== e.email)
+                                                    )
+                                                }
+                                            />
+                                            <span>
+                                                {e.label || e.email}{" "}
+                                                <span className="text-xs text-gray-500">({e.email})</span>
+                                            </span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Subject */}
+                            <div>
+                                <label className="font-medium text-sm block mb-1">Subject:</label>
+                                <input
+                                    type="text"
+                                    className="border rounded-lg px-3 py-2 w-full focus:ring-2 focus:ring-blue-500 focus:outline-none"
+                                    value={mailSubject}
+                                    onChange={e => setMailSubject(e.target.value)}
+                                />
+                            </div>
+
+                            {/* Upazila selection */}
+                            <div>
+                                <label className="font-medium text-sm block mb-1">Upazila Data to Include:</label>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {upazilaAlertOptions.map(upz => (
+                                        <label key={upz} className="flex items-center gap-2">
+                                            <input
+                                                type="checkbox"
+                                                className="h-4 w-4 accent-blue-600"
+                                                checked={selectedUpazilasAlert.includes(upz)}
+                                                onChange={ev =>
+                                                    setSelectedUpazilasAlert(checked =>
+                                                        ev.target.checked
+                                                            ? [...checked, upz]
+                                                            : checked.filter(x => x !== upz)
+                                                    )
+                                                }
+                                            />
+                                            <span>{upz}</span>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Body */}
+                            {/* <div>
+                                <label className="font-medium text-sm block mb-1">Body Preview:</label>
+                                <div className="border rounded-lg p-3 w-full bg-gray-50" style={{ minHeight: 120 }}>
+                                    <div dangerouslySetInnerHTML={{ __html: mailBody }} />
+                                </div>
+                            </div> */}
+                        </div>
+
+                        {/* Footer */}
+                        <div className="flex justify-end gap-3 border-t px-5 py-3 bg-gray-50">
+                            <button
+                                className="px-4 py-2 rounded-lg bg-gray-100 hover:bg-gray-200"
+                                onClick={() => setAlertModal(false)}
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                className="px-5 py-2 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700"
+                                onClick={async () => {
+                                    let body = mailBody;
+                                    if (!body) {
+                                        const rows = (forecastResults || [])
+                                            .filter(d => selectedUpazilasAlert.includes(d.upa_name))
+                                            .map(d => {
+                                                const cases = Math.round(d.pred_cases);
+                                                const risk = getRiskTag(cases);
+                                                return `<tr>
+            <td>${d.upa_name}</td>
+            <td>${d.forecast_month}</td>
+            <td style="text-align:center;">${cases}</td>
+            <td style="text-align:center;">${risk}</td>
+          </tr>`;
+                                            })
+                                            .join("");
+                                        body = `<h3>Malaria Prediction Alert</h3>
+        <table border="1" cellspacing="0" cellpadding="4" style="border-collapse:collapse;">
+          <tr>
+            <th>Upazila</th>
+            <th>Month</th>
+            <th>Predicted Cases</th>
+            <th>Risk</th>
+          </tr>
+          ${rows}
+        </table>`;
+                                    }
+                                    try {
+                                        await axios.post("http://localhost:5000/send-alert", {
+                                            emails: mailRecipients,
+                                            subject: mailSubject,
+                                            body
+                                        });
+                                        toast.success("Alert email sent!");
+                                        setAlertModal(false);
+                                    } catch (e) {
+                                        toast.error(
+                                            "Failed to send mail: " + (e.response?.data?.message || e.message)
+                                        );
+                                    }
+                                }}
+                            >
+                                Send
+                            </button>
+
+                        </div>
+                    </div>
+                </div>
+            )}
+
+
         </div>
     );
 }
@@ -445,6 +681,28 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
                 res.forecast_month === forecastMonth
         );
     }
+
+    // Find upazilas above threshold
+    const bips = useMemo(() => {
+        if (!geojson || !forecastResults) return [];
+        return geojson.features
+            .map((feature) => {
+                const upa = feature.properties.UPA_NAME;
+                const pred = forecastResults.find(res =>
+                    res.upa_name?.trim().toLowerCase() === upa?.trim().toLowerCase() &&
+                    res.forecast_month === forecastMonth
+                );
+                const cases = pred ? Number(pred.pred_cases) : 0;
+                if (cases > threshold && feature.geometry) {
+                    const centroid = getCentroid(feature.geometry);
+                    // Return [lat, lng]
+                    return { center: [centroid[1], centroid[0]], upa };
+                }
+                return null;
+            })
+            .filter(Boolean);
+    }, [geojson, forecastResults, forecastMonth, threshold]);
+
 
     // Build polygons + labels
     useEffect(() => {
@@ -603,9 +861,68 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
         });
     }, [zoom, map]);
 
-    return null;
+    return (
+        <>
+            {type === "forecast" && bips.map((bip, i) => (
+                <BippingMarker
+                    key={bip.upa + i}
+                    center={bip.center}
+                    color="#ef4444"
+                    size={28}
+                    borderColor="#fff"
+                    borderWidth={4}
+                    zIndex={1400}
+                />
+            ))}
+        </>
+    );
 }
 
+function BippingMarker({
+    center,
+    color = "#ef4444", // plain color instead of Tailwind class
+    size = 28,
+    borderColor = "rgba(255,255,255,0.6)", // softer white
+    borderWidth = 2, // thinner border
+    zIndex = 1200,
+}) {
+    const map = useMap();
+
+    useEffect(() => {
+        if (!center) return;
+
+        const el = document.createElement("div");
+        el.innerHTML = `
+      <div style="position:relative;width:${size}px;height:${size}px;">
+        <div style="
+          position:absolute;top:0;left:0;right:0;bottom:0;
+          background:${color};
+          opacity:0.7;
+          border-radius:50%;
+          animation:bip-pulse 1.2s infinite alternate;
+          width:${size}px;height:${size}px;
+        "></div>
+
+      </div>
+    `;
+
+        const marker = L.marker(center, {
+            icon: L.divIcon({
+                className: "",
+                html: el,
+                iconSize: [size, size],
+                iconAnchor: [size / 2, size / 2],
+            }),
+            interactive: false,
+        }).addTo(map);
+
+        marker.setZIndexOffset(zIndex);
+
+        return () => marker.remove();
+    }, [center, color, size, borderColor, borderWidth, zIndex, map]);
+
+    return null;
+}
 
 
 
@@ -790,4 +1107,14 @@ function getCentroid(geometry) {
     return [cx, cy];
 }
 
+
+
 export default Alert
+
+function getRiskTag(cases) {
+    if (cases > 100)
+        return `<span style="color:#fff; background:#ef4444; border-radius:5px; padding:2px 7px; font-weight:bold;">High</span>`;
+    if (cases > 50)
+        return `<span style="color:#fff; background:#f59e42; border-radius:5px; padding:2px 7px; font-weight:bold;">Mid</span>`;
+    return `<span style="color:#fff; background:#22c55e; border-radius:5px; padding:2px 7px; font-weight:bold;">Low</span>`;
+}

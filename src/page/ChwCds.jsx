@@ -568,9 +568,6 @@ function ChwCds() {
 
     return (
         <div>
-            <div>
-                <p>{filteredSubmissions.length}</p>
-            </div>
             <div className="bg-blue-50 p-4 rounded-xl shadow-md mb-6">
                 <div className="grid grid-2 md:grid-cols-3 lg:grid-cols-4 gap-4 items-end">
                     {/* Date Range Picker (static for now) */}
