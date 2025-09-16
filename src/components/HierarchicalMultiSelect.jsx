@@ -46,11 +46,11 @@ export default function HierarchicalMultiSelect({
 
     return (
         <div className="relative flex flex-col w-full" ref={containerRef}>
-            <label className="block mb-1 font-medium text-black">{label}</label>
+            <label className="block mb-1 text-sm font-medium text-black">{label}</label>
             <button
                 type="button"
                 onClick={() => !disabled && setOpen(!open)}
-                className={`w-full bg-white text-black px-3 py-2 rounded-md border border-gray-300 flex justify-between items-center shadow-sm hover:border-gray-500 transition-colors ${disabled ? "opacity-50 cursor-not-allowed" : ""
+                className={`w-full bg-white text-black px-3 py-2 rounded-md border border-gray-300 flex justify-between items-center shadow-sm hover:border-gray-500 transition-colors text-sm ${disabled ? "opacity-50 cursor-not-allowed" : ""
                     }`}
                 disabled={disabled}
             >
@@ -76,7 +76,7 @@ export default function HierarchicalMultiSelect({
 
             {open && !disabled && (
                 <div className="absolute z-10 mt-1 w-full bg-white text-black rounded-md border border-gray-300 shadow-lg max-h-60 overflow-auto">
-                    <div className="flex justify-between px-3 py-2 border-b border-gray-200">
+                    <div className="flex  justify-between px-3 py-2 border-b border-gray-200">
                         <button
                             type="button"
                             onClick={selectAll}
@@ -98,7 +98,7 @@ export default function HierarchicalMultiSelect({
                             value={searchValue}
                             onChange={(e) => setSearchValue(e.target.value)}
                             placeholder={`Search ${label.toLowerCase()}...`}
-                            className="w-full px-2 py-1 rounded-md bg-gray-100 text-black border border-gray-300 focus:outline-none focus:ring-1 focus:ring-black"
+                            className="w-full text-sm px-2 py-1 rounded-md bg-gray-100 text-black border border-gray-300 focus:outline-none focus:ring-1 focus:ring-black"
                         />
                     </div>
                     <ul>
@@ -110,7 +110,7 @@ export default function HierarchicalMultiSelect({
                                     key={option}
                                     className="px-3 py-2 hover:bg-gray-100 cursor-pointer flex items-center"
                                 >
-                                    <label className="flex items-center w-full cursor-pointer">
+                                    <label className="flex items-center w-full cursor-pointer text-sm">
                                         <input
                                             type="checkbox"
                                             checked={selected.includes(option)}

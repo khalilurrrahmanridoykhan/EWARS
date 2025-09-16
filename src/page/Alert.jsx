@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, useMap } from "react-leaflet";
 import {
     LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, Brush
@@ -16,11 +16,11 @@ import { ChevronDown } from "lucide-react";
 
 // Demo chart data
 const chartData = [
-    { month: "August", threshold: 10, predicted: 12, actual: 9 },
-    { month: "September", threshold: 3, predicted: 14, actual: 11 },
-    { month: "October", threshold: 15, predicted: 16, actual: 13 },
-    { month: "November", threshold: 17, predicted: 18, actual: 16 },
-    { month: "December", threshold: 20, predicted: 21, actual: 19 },
+    { month: "August", threshold: 10, predicted: 12 },
+    { month: "September", threshold: 3, predicted: 14 },
+    { month: "October", threshold: 15, predicted: 16 },
+    { month: "November", threshold: 17, predicted: 18 },
+    { month: "December", threshold: 20, predicted: 21 },
 ];
 
 // Month helper
@@ -53,6 +53,9 @@ function Alert() {
         () => getMonthVariants(selectedMonth ? new Date(selectedMonth) : new Date()),
         [selectedMonth]
     );
+
+    const [threshold, setThreshold] = useState(100);
+
 
     console.log("actualData:", actualData);
 
@@ -202,6 +205,38 @@ function Alert() {
         return { ...geoJson, features };
     }, [geoJson, selectedDivisions, selectedDistricts, selectedUpazilas]);
 
+    // const chartMonths = useMemo(
+    //     () => getMonthVariants(selectedMonth ? new Date(selectedMonth) : new Date()),
+    //     [selectedMonth]
+    // );
+    // const actualMonth = chartMonths[1];
+
+    // const mapMonths = useMemo(
+    //     () => [selectedMonth ? new Date(selectedMonth) : new Date()],
+    //     [selectedMonth]
+    // );
+
+
+    const dynamicChartData = useMemo(() => {
+        // On load - no forecastResults
+        if (!forecastResults || forecastResults.length === 0) {
+            return months.map(m => ({
+                month: m.label,       // Use the month label string from getMonthVariants
+                threshold,
+                predicted: null
+            }));
+        }
+        return months.map(m => {
+            const pred = forecastResults.find(f => f.forecast_month === m.code);
+            return {
+                month: m.label,       // X axis from getMonthVariants
+                threshold,
+                predicted: pred ? Math.round(pred.pred_cases) : null
+            };
+        });
+    }, [forecastResults, months, threshold]);
+
+
 
     return (
         <div className="flex flex-col h-screen lg:flex-row">
@@ -232,6 +267,20 @@ function Alert() {
                     />
 
                     <MonthPicker label="Predict Month" date={selectedMonth} setDate={setSelectedMonth} />
+                    <div className="flex items-center gap-2 mb-4">
+                        <label className="font-semibold text-sm text-black" htmlFor="threshold-input">
+                            Threshold:
+                        </label>
+                        <input
+                            id="threshold-input"
+                            type="number"
+                            value={threshold}
+                            min={0}
+                            onChange={e => setThreshold(Number(e.target.value))}
+                            className="border bg-white rounded px-2 py-1 w-20"
+                            style={{ fontSize: "14px" }}
+                        />
+                    </div>
                     <button onClick={handleGenerate} className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
                         Generate
                     </button>
@@ -246,7 +295,7 @@ function Alert() {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
                     <div className=" bg-white border rounded shadow p-4">
                         <ResponsiveContainer width="100%" height={320}>
-                            <LineChart data={chartData}>
+                            <LineChart data={dynamicChartData}>
                                 <CartesianGrid strokeDasharray="3 3" />
                                 <XAxis dataKey="month" />
                                 <YAxis />
@@ -254,12 +303,6 @@ function Alert() {
                                 <Legend />
                                 <Line type="monotone" dataKey="threshold" stroke="#ef4444" /> {/* red */}
                                 <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={<BlinkingDot />} /> {/* blue */}
-                                <Line
-                                    type="monotone"
-                                    dataKey="actual"
-                                    stroke="#22c55e"
-                                    dot={<BlinkingDot />}
-                                />
 
                                 <Brush
                                     dataKey="month"
@@ -274,14 +317,13 @@ function Alert() {
                                         <CartesianGrid strokeDasharray="2 2" strokeOpacity={0.2} />
                                         <Line type="monotone" dataKey="threshold" stroke="#ef4444" dot={false} />
                                         <Line type="monotone" dataKey="predicted" stroke="#3b82f6" dot={false} />
-                                        <Line type="monotone" dataKey="actual" stroke="#22c55e" dot={false} />
                                     </LineChart>
                                 </Brush>
                             </LineChart>
                         </ResponsiveContainer>
                     </div>
 
-                    {months.map((m, i) => (
+                    {months.slice(-1).map((m, i) => (
                         <MapCard
                             key={`pred-${i}`}
                             title={`Predictive Case – ${getPreviousMonthLabel(m.label)}`}
@@ -289,8 +331,10 @@ function Alert() {
                             forecastResults={forecastResults}
                             forecastMonth={m.code}
                             type="forecast"
+                            threshold={threshold}
                         />
                     ))}
+
                 </div>
 
                 {/* <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
@@ -368,151 +412,78 @@ function MonthPicker({ label, date, setDate }) {
     )
 }
 
-// function GeoJSONLayer({ geojson, forecastResults, forecastMonth }) {
-//     const map = useMap();
-
-//     useEffect(() => {
-//         if (!geojson) return;
-
-//         function getPrediction(upa) {
-//             if (!forecastResults) return null;
-//             // Robust case and space comparison:
-//             return forecastResults.find(
-//                 res =>
-//                     res.upa_name.trim().toLowerCase() === upa.trim().toLowerCase() &&
-//                     res.forecast_month === forecastMonth
-//             );
-//         }
-
-
-
-//         map.eachLayer(layer => {
-//             if (layer.feature) map.removeLayer(layer);
-//         });
-
-//         const layer = L.geoJSON(geojson, {
-//             style: feature => {
-//                 const upa = feature?.properties?.UPA_NAME;
-//                 const pred = getPrediction(upa);
-//                 let fillColor = "#eee";
-//                 if (pred && pred.pred_cases !== undefined) {
-//                     const cases = Number(pred.pred_cases) || 0;
-//                     fillColor = cases > 100 ? "#ef4444" : (cases > 50 ? "#fbbf24" : "#22c55e");
-//                 }
-//                 return {
-//                     color: "#000",
-//                     weight: 0.2,
-//                     fillColor,
-//                     fillOpacity: 0.7,
-//                 };
-//             },
-//             onEachFeature: (feature, lyr) => {
-//                 const upa = feature?.properties?.UPA_NAME;
-//                 const pred = getPrediction(upa);
-
-//                 let html = `
-//         <div style="font-family: Arial, sans-serif; font-size: 11px; color: #333; max-width: 180px;">
-//             <table style="border-collapse: collapse; width: 100%;">
-//                 <tr>
-//                     <td style="padding: 2px 4px; font-weight: bold;">Upazila</td>
-//                     <td style="padding: 2px 4px;">${upa || "Unknown"}</td>
-//                 </tr>
-//     `;
-
-//                 if (pred && pred.pred_cases !== undefined) {
-//                     html += `
-//                 <tr>
-//                     <td style="padding: 2px 4px; font-weight: bold;">Month</td>
-//                     <td style="padding: 2px 4px;">${pred.forecast_month}</td>
-//                 </tr>
-//                 <tr>
-//                     <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
-//                     <td style="padding: 2px 4px;">${pred.pred_cases}</td>
-//                 </tr>
-//             </table>
-//         </div>
-//         `;
-//                 } else {
-//                     html += `
-//             </table>
-//             <div style="margin-top: 2px; font-style: italic; color: #777;">
-//                 No prediction data
-//             </div>
-//         </div>
-//         `;
-//                 }
-
-//                 lyr.bindPopup(html);
-//             }
-
-//             ,
-//         });
-//         layer.addTo(map);
-
-//         if (geojson.features.length > 0) {
-//             map.fitBounds(layer.getBounds());
-//         }
-//         return () => {
-//             map.removeLayer(layer);
-//         };
-//     }, [geojson, map, forecastResults, forecastMonth]);
-//     return null;
-// }
-
-function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, actualMonth, type }) {
+function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, actualMonth, type, threshold = 100 }) {
     const map = useMap();
+    const [zoom, setZoom] = useState(map.getZoom());
 
+    const geoJsonRef = useRef(null);
+    const labelsRef = useRef([]);
+
+    useEffect(() => {
+        const handleZoom = () => setZoom(map.getZoom());
+        map.on("zoomend", handleZoom);
+        return () => map.off("zoomend", handleZoom);
+    }, [map]);
+
+    function getActual(upaID) {
+        if (!actualData || !actualMonth) return null;
+        const [year, monthNum] = actualMonth.split("-");
+        const monthName = monthNames[parseInt(monthNum, 10) - 1];
+        return actualData.find(
+            d =>
+                String(d.UpazilaID) === String(upaID) &&
+                String(d.ReportYear) === year &&
+                String(d.ReportMonth).toLowerCase() === monthName.toLowerCase()
+        );
+    }
+
+    function getPrediction(upa) {
+        if (!forecastResults) return null;
+        return forecastResults.find(
+            res =>
+                res.upa_name.trim().toLowerCase() === upa.trim().toLowerCase() &&
+                res.forecast_month === forecastMonth
+        );
+    }
+
+    // Build polygons + labels
     useEffect(() => {
         if (!geojson) return;
 
-        function getActual(upaID) {
-            if (!actualData || !actualMonth) return null;
-
-            const [year, monthNum] = actualMonth.split("-");
-            const monthName = monthNames[parseInt(monthNum, 10) - 1];
-
-            return actualData.find(
-                d =>
-                    String(d.UpazilaID) === String(upaID) && // <--- Use ID for matching
-                    String(d.ReportYear) === year &&
-                    String(d.ReportMonth).toLowerCase() === monthName.toLowerCase()
-            );
+        // remove old polygons + labels
+        if (geoJsonRef.current) {
+            map.removeLayer(geoJsonRef.current);
         }
-
-
-        function getPrediction(upa) {
-            if (!forecastResults) return null;
-            return forecastResults.find(
-                res =>
-                    res.upa_name.trim().toLowerCase() === upa.trim().toLowerCase() &&
-                    res.forecast_month === forecastMonth
-            );
-        }
-
-        map.eachLayer(layer => {
-            if (layer.feature) map.removeLayer(layer);
-        });
+        labelsRef.current.forEach(m => map.removeLayer(m));
+        labelsRef.current = [];
 
         const layer = L.geoJSON(geojson, {
             style: feature => {
-                // Use UpazilaID for actual data
                 const upaID = feature?.properties?.UpazilaID;
                 const upa = feature?.properties?.UPA_NAME;
                 let fillColor = "#eee";
                 let cases = null;
+
                 if (type === "forecast") {
                     const pred = getPrediction(upa);
                     if (pred && pred.pred_cases !== undefined) {
                         cases = Number(pred.pred_cases) || 0;
-                        fillColor = cases > 100 ? "#ef4444" : cases > 50 ? "#fbbf24" : "#22c55e";
+                        fillColor =
+                            cases > threshold
+                                ? "#ef4444"
+                                : cases > 0.5 * threshold
+                                    ? "#fbbf24"
+                                    : "#22c55e";
                     }
                 } else if (type === "actual") {
-                    const actual = getActual(upaID); // <-- Pass UpazilaID, NOT upa name!
+                    const actual = getActual(upaID);
                     if (actual && actual.CASEE !== undefined) {
                         cases = Number(actual.CASEE) || 0;
-                        fillColor = cases > 100 ? "#ef4444" : cases > 50 ? "#fbbf24" : "#22c55e";
+                        fillColor =
+                            cases > 100 ? "#ef4444" : cases > 50 ? "#fbbf24" : "#22c55e";
                     }
                 }
+
                 return {
                     color: "#000",
                     weight: 0.2,
@@ -523,78 +494,118 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
             onEachFeature: (feature, lyr) => {
                 const upaID = feature?.properties?.UpazilaID;
                 const upa = feature?.properties?.UPA_NAME;
-                let html =
-                    `<div style="font-family: Arial, sans-serif; font-size: 11px; color: #333; max-width: 180px;">
-            <table style="border-collapse: collapse; width: 100%;">
-            <tr>
-                <td style="padding: 2px 4px; font-weight: bold;">Upazila</td>
-                <td style="padding: 2px 4px;">${upa || "Unknown"}</td>
-            </tr>`;
+
+                let html = `<div style="font-family: Arial, sans-serif; font-size: 11px; color: #333; max-width: 180px;">
+          <table style="border-collapse: collapse; width: 100%;">
+          <tr>
+              <td style="padding: 2px 4px; font-weight: bold;">Upazila</td>
+              <td style="padding: 2px 4px;">${upa || "Unknown"}</td>
+          </tr>`;
 
                 if (type === "forecast") {
                     const pred = getPrediction(upa);
                     if (pred && pred.pred_cases !== undefined) {
                         html += `
-                    <tr>
-                        <td style="padding: 2px 4px; font-weight: bold;">Month</td>
-                        <td style="padding: 2px 4px;">${pred.forecast_month}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
-                        <td style="padding: 2px 4px;">${pred.pred_cases}</td>
-                    </tr>`;
+              <tr>
+                  <td style="padding: 2px 4px; font-weight: bold;">Month</td>
+                  <td style="padding: 2px 4px;">${pred.forecast_month}</td>
+              </tr>
+              <tr>
+                  <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
+                  <td style="padding: 2px 4px;">${pred.pred_cases.toFixed(0)}</td>
+              </tr>`;
                     } else {
-                        html += `
-                    </table>
-                    <div style="margin-top: 2px; font-style: italic; color: #777;">
-                        No prediction data
-                    </div>
-                    </div>`;
+                        html += `</table>
+              <div style="margin-top: 2px; font-style: italic; color: #777;">
+                No prediction data
+              </div>
+            </div>`;
                     }
                 } else if (type === "actual") {
-                    const actual = getActual(upaID); // <-- Pass UpazilaID here too!
+                    const actual = getActual(upaID);
                     if (actual && actual.CASEE !== undefined) {
                         html += `
-                    <tr>
-                        <td style="padding: 2px 4px; font-weight: bold;">Month</td>
-                        <td style="padding: 2px 4px;">${actual.ReportMonth} ${actual.ReportYear}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
-                        <td style="padding: 2px 4px;">${actual.CASEE}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 2px 4px;">Tests</td>
-                        <td style="padding: 2px 4px;">${actual.TEST}</td>
-                    </tr>
-                    <tr>
-                        <td style="padding: 2px 4px;">Deaths</td>
-                        <td style="padding: 2px 4px;">${actual.DEATH}</td>
-                    </tr>`;
+              <tr>
+                  <td style="padding: 2px 4px; font-weight: bold;">Month</td>
+                  <td style="padding: 2px 4px;">${actual.ReportMonth} ${actual.ReportYear}</td>
+              </tr>
+              <tr>
+                  <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
+                  <td style="padding: 2px 4px;">${actual.CASEE}</td>
+              </tr>
+              <tr>
+                  <td style="padding: 2px 4px;">Tests</td>
+                  <td style="padding: 2px 4px;">${actual.TEST}</td>
+              </tr>
+              <tr>
+                  <td style="padding: 2px 4px;">Deaths</td>
+                  <td style="padding: 2px 4px;">${actual.DEATH}</td>
+              </tr>`;
                     } else {
-                        html += `
-                    </table>
-                    <div style="margin-top: 2px; font-style: italic; color: #777;">
-                        No actual data
-                    </div>
-                    </div>`;
+                        html += `</table>
+              <div style="margin-top: 2px; font-style: italic; color: #777;">
+                No actual data
+              </div>
+            </div>`;
                     }
                 }
 
                 lyr.bindPopup(html);
+
+                // Forecast labels (only created once, toggled later)
+                if (type === "forecast" && forecastResults) {
+                    const pred = getPrediction(upa);
+                    if (pred && pred.pred_cases !== undefined) {
+                        const centroid = getCentroid(feature.geometry);
+                        const div = L.divIcon({
+                            html: `<div style="
+                background:rgba(255,255,255,.80);
+                border-radius:4px;
+                padding:1px 4px;
+                font-weight:bold;
+                font-size:${zoom >= 12 ? 12 : 10}px;
+                color:#111;
+                border:1px solid #999;
+                box-shadow:0 1px 3px #0002;
+              ">${Math.round(pred.pred_cases)}</div>`,
+                            iconSize: [30, 20],
+                            iconAnchor: [15, 10],
+                        });
+                        const labelMarker = L.marker([centroid[1], centroid[0]], {
+                            icon: div,
+                            interactive: false,
+                        });
+                        labelMarker.addTo(map);
+                        labelsRef.current.push(labelMarker);
+                    }
+                }
             },
         });
+
         layer.addTo(map);
+        geoJsonRef.current = layer;
 
         if (geojson.features.length > 0) {
             map.fitBounds(layer.getBounds());
         }
-        return () => {
-            map.removeLayer(layer);
-        };
-    }, [geojson, map, forecastResults, forecastMonth, actualData, actualMonth, type]);
+    }, [geojson, map, forecastResults, forecastMonth, actualData, actualMonth, type, threshold]);
+
+    // Toggle label visibility on zoom
+    useEffect(() => {
+        labelsRef.current.forEach(marker => {
+            if (zoom < 8) {
+                map.removeLayer(marker);
+            } else {
+                if (!map.hasLayer(marker)) {
+                    marker.addTo(map);
+                }
+            }
+        });
+    }, [zoom, map]);
+
     return null;
 }
+
 
 
 
@@ -637,8 +648,8 @@ function getMonthVariants(startDate) {
     const curr = new Date(currentYear, currentMonth, 1);
     const next = new Date(currentYear, currentMonth + 1, 1);
     return [
-        // { label: `${monthNames[prev.getMonth()]} ${prev.getFullYear()}`, code: prev.toISOString().slice(0, 10) },
-        // { label: `${monthNames[currentMonth]} ${currentYear}`, code: curr.toISOString().slice(0, 10) },
+        { label: `${monthNames[prev.getMonth()]} ${prev.getFullYear()}`, code: prev.toISOString().slice(0, 10) },
+        { label: `${monthNames[currentMonth]} ${currentYear}`, code: curr.toISOString().slice(0, 10) },
         { label: `${monthNames[next.getMonth()]} ${next.getFullYear()}`, code: next.toISOString().slice(0, 10) },
     ];
 }
@@ -673,7 +684,8 @@ function MapCard({
     forecastMonth,
     actualData,
     actualMonth,
-    type
+    type,
+    threshold = 100
 }) {
     // NEW: Collapsed state, default open
     const [collapsed, setCollapsed] = useState(false);
@@ -704,6 +716,7 @@ function MapCard({
                                 actualData={type === 'actual' ? actualData : undefined}
                                 actualMonth={type === 'actual' ? actualMonth : undefined}
                                 type={type}
+                                threshold={threshold}
                             />
                         )}
                     </MapContainer>
@@ -753,6 +766,28 @@ function getPreviousMonthLabel(label) {
         year--;
     }
     return `${monthNames[monthIdx]} ${year}`;
+}
+
+function getCentroid(geometry) {
+    let coords = [];
+    if (geometry.type === "Polygon") {
+        coords = geometry.coordinates[0];
+    } else if (geometry.type === "MultiPolygon") {
+        coords = geometry.coordinates[0][0];
+    }
+    if (!coords.length) return [0, 0];
+    let area = 0, cx = 0, cy = 0;
+    for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
+        const [x0, y0] = coords[j], [x1, y1] = coords[i];
+        const f = x0 * y1 - x1 * y0;
+        area += f;
+        cx += (x0 + x1) * f;
+        cy += (y0 + y1) * f;
+    }
+    area /= 2;
+    cx /= 6 * area;
+    cy /= 6 * area;
+    return [cx, cy];
 }
 
 export default Alert

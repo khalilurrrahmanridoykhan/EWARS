@@ -537,7 +537,8 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
                     </tr>
                     <tr>
                         <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
-                        <td style="padding: 2px 4px;">${pred.pred_cases}</td>
+                       <td style="padding: 2px 4px;">${pred.pred_cases.toFixed(0)}</td>
+
                     </tr>`;
                     } else {
                         html += `
