@@ -7,6 +7,10 @@
         {
             "source": "/lmis/(.*)",
             "destination": "https://lmis.nmcp.gov.bd/$1"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
         }
     ]
 }
