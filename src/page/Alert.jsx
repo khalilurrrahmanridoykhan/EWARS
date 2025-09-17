@@ -590,7 +590,7 @@ function Alert() {
         </table>`;
                                     }
                                     try {
-                                        await axios.post("http://localhost:5000/send-alert", {
+                                        await axios.post("https://ewars-mails.onrender.com/send-alert", {
                                             emails: mailRecipients,
                                             subject: mailSubject,
                                             body
