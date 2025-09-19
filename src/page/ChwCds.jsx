@@ -8,6 +8,7 @@ import { format } from "date-fns"
 import { Button } from "@/components/ui/button"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
+import { FiFilter } from "react-icons/fi";
 
 import { MapContainer, TileLayer, CircleMarker, useMap } from "react-leaflet";
 import L from "leaflet";
@@ -43,6 +44,9 @@ function ChwCds() {
     const [filteredSubmissions, setFilteredSubmissions] = useState([]);
     const [dateRange, setDateRange] = useState([null, null]); // [startDate, endDate]
     const [collapsed, setCollapsed] = useState(false);
+
+    const [showFilter, setShowFilter] = useState(false);
+    const [mapFilterState, setMapFilterState] = useState({});
 
 
 
@@ -301,14 +305,32 @@ function ChwCds() {
             (!selectedUnions.length || selectedUnions.includes(row.union)) &&
             (!selectedWards.length || selectedWards.includes(row.ward)) &&
             (!selectedAreas.length || selectedAreas.includes(row.area)) &&
-            (!selectedOrganizations.length || selectedOrganizations.includes(row.organization)) &&
-            (
-                !selectedDiseases.length ||
-                row.disease.some(d => selectedDiseases.includes(d))
+            (!selectedOrganizations.length ||
+                selectedOrganizations.some(
+                    o =>
+                        (row.organization || '').toLowerCase().trim() === o.toLowerCase().trim()
+                )
             ) &&
-            (!start || !row.day || row.day >= start) &&
-            (!end || !row.day || row.day <= end)
+            (!selectedDiseases.length ||
+                (Array.isArray(row.disease)
+                    ? row.disease.some(d =>
+                        selectedDiseases.some(
+                            s =>
+                                (d || '').toLowerCase().trim() === s.toLowerCase().trim()
+                        )
+                    )
+                    : selectedDiseases.some(
+                        s =>
+                            (row.disease || '')
+                                .toLowerCase()
+                                .trim() === s.toLowerCase().trim()
+                    )
+                )
+            ) &&
+            (!start || (row.day && row.day >= start)) &&
+            (!end || (row.day && row.day <= end))
         );
+
         setFilteredSubmissions(filtered);
     }, [
         h,
@@ -322,6 +344,7 @@ function ChwCds() {
         selectedDiseases,
         dateRange
     ]);
+
 
 
     const allDays = useMemo(() => (
@@ -351,10 +374,10 @@ function ChwCds() {
     }, [minDay, maxDay]);
 
     function calculateMetrics(submissions) {
-        // Line chart: submissions over time
+        // Submissions Over Time (Line Chart)
         const submissionsPerDay = {};
         submissions.forEach(row => {
-            const day = row.day || row.date; // Both allowed, derived from direct.end
+            const day = row.day || row.date;
             if (!day) return;
             submissionsPerDay[day] = (submissionsPerDay[day] || 0) + 1;
         });
@@ -362,14 +385,19 @@ function ChwCds() {
             .sort()
             .map(day => ({ name: day, value: submissionsPerDay[day] }));
 
-        // Suspected Ratio Pie and Count
+        // Suspected Ratio Pie
         let suspected = 0, notSuspected = 0, suspectedOther = 0;
         submissions.forEach(x => {
-            const suspectedVal = x.suspectedinthedisease;
-            if (suspectedVal === "yes") suspected++;
-            else if (suspectedVal === "no") notSuspected++;
+            if (x.suspectedinthedisease === "yes") suspected++;
+            else if (x.suspectedinthedisease === "no") notSuspected++;
             else suspectedOther++;
         });
+        const suspectedRatioPieBackend = [
+            { name: "Suspected", value: suspected },
+            { name: "Not Suspected", value: notSuspected },
+            { name: "Other", value: suspectedOther }
+        ];
+        const suspectedRatioPie = suspectedRatioPieBackend.filter(d => d.name !== "Other");
 
         // Suspected Disease Count Bar
         const diseaseCounts = {};
@@ -385,20 +413,33 @@ function ChwCds() {
         // Referral Rate Pie
         let referredYes = 0, referredNo = 0, referredOther = 0;
         submissions.forEach(x => {
-            const referredVal = x.referred;
-            if (referredVal === "yes") referredYes++;
-            else if (referredVal === "no") referredNo++;
+            if (x.referred === "yes") referredYes++;
+            else if (x.referred === "no") referredNo++;
             else referredOther++;
         });
+        const referralRatePieBackend = [
+            { name: "Yes", value: referredYes },
+            { name: "No", value: referredNo },
+            { name: "Other", value: referredOther }
+        ];
+        const referralRatePie = referralRatePieBackend.filter(d => d.name !== "Other");
 
-        // Referral facility type Pie
+        // Facility Type Pie: combine web ('referralplace'/'referral_place') and mobile ('organization')
         const facilityTypeCounts = {};
         submissions.forEach(x => {
-            if (x.referralplace) facilityTypeCounts[x.referralplace] = (facilityTypeCounts[x.referralplace] || 0) + 1;
+            let refPlace = x.referralplace || x.referral_place || "";
+            let org = (x.organization || "").toLowerCase();
+            if (!refPlace && org) { // mobile
+                refPlace = org === "govt" ? "Govt" : (org === "brac" ? "BRAC" : org);
+            }
+            refPlace = normalizeFacility(refPlace);
+            if (refPlace === "Govt" || refPlace === "BRAC" || refPlace === "Private") {
+                facilityTypeCounts[refPlace] = (facilityTypeCounts[refPlace] || 0) + 1;
+            }
         });
         const facilityTypePie = Object.entries(facilityTypeCounts).map(([name, value]) => ({ name, value }));
 
-        // Gender counts Pie
+        // Gender Pie
         let male = 0, female = 0, pregnant = 0, otherGender = 0;
         submissions.forEach(x => {
             if (x.sex === "male") male++;
@@ -409,37 +450,78 @@ function ChwCds() {
         const genderPie = [
             { name: "Male", value: male },
             { name: "Female", value: female },
-            { name: "Pregnant", value: pregnant },
-            { name: "Other", value: otherGender }
+            { name: "Pregnant", value: pregnant }
         ];
 
-        // Bednet Usage Pie
+        // Bednet Pie
         let bednetYes = 0, bednetNo = 0, bednetOther = 0;
         submissions.forEach(x => {
-            const val = x.bednetusepracticeduringsleep;
-            if (val === "yes") bednetYes++;
-            else if (val === "no") bednetNo++;
+            if (x.bednetusepracticeduringsleep === "yes") bednetYes++;
+            else if (x.bednetusepracticeduringsleep === "no") bednetNo++;
             else bednetOther++;
         });
-        const bednetPie = [
+        const bednetPieBackend = [
             { name: "Yes", value: bednetYes },
             { name: "No", value: bednetNo },
             { name: "Other", value: bednetOther }
         ];
+        const bednetPie = bednetPieBackend.filter(d => d.name !== "Other");
 
         // Handwashing Pie
         let washYes = 0, washNo = 0, washOther = 0;
         submissions.forEach(x => {
-            const val = x.handwashingpracticewithsoapwater;
-            if (val === "yes") washYes++;
-            else if (val === "no") washNo++;
+            if (x.handwashingpracticewithsoapwater === "yes") washYes++;
+            else if (x.handwashingpracticewithsoapwater === "no") washNo++;
             else washOther++;
         });
-        const washPie = [
+        const washPieBackend = [
             { name: "Yes", value: washYes },
             { name: "No", value: washNo },
             { name: "Other", value: washOther }
         ];
+        const washPie = washPieBackend.filter(d => d.name !== "Other");
+
+        // Mosquito Breeding Pie
+        let breedYes = 0, breedNo = 0, breedOther = 0;
+        submissions.forEach(x => {
+            if (x.presenceofstagnantwatermosquitobreedingsites === "yes") breedYes++;
+            else if (x.presenceofstagnantwatermosquitobreedingsites === "no") breedNo++;
+            else breedOther++;
+        });
+        const mosquitoBreedPieBackend = [
+            { name: "Yes", value: breedYes },
+            { name: "No", value: breedNo },
+            { name: "Other", value: breedOther }
+        ];
+        const mosquitoBreedPie = mosquitoBreedPieBackend.filter(d => d.name !== "Other");
+
+        // Mosquito Larvae Pie
+        let larvaeYes = 0, larvaeNo = 0, larvaeOther = 0;
+        submissions.forEach(x => {
+            if (x.presenceofmosquitolarvae === "yes" || x.presenceofmosquitolarvae === "aedes" || x.presenceofmosquitolarvae === "others") larvaeYes++;
+            else if (x.presenceofmosquitolarvae === "no") larvaeNo++;
+            else larvaeOther++;
+        });
+        const mosquitoLarvaePieBackend = [
+            { name: "Yes", value: larvaeYes },
+            { name: "No", value: larvaeNo },
+            { name: "Other", value: larvaeOther }
+        ];
+        const mosquitoLarvaePie = mosquitoLarvaePieBackend.filter(d => d.name !== "Other");
+
+        // Disaster in Last Week Pie
+        let disasterYes = 0, disasterNo = 0, disasterOther = 0;
+        submissions.forEach(x => {
+            if (x.didanydisasteroccurinlast7days === "yes") disasterYes++;
+            else if (x.didanydisasteroccurinlast7days === "no") disasterNo++;
+            else disasterOther++;
+        });
+        const disasterWeekPieBackend = [
+            { name: "Yes", value: disasterYes },
+            { name: "No", value: disasterNo },
+            { name: "Other", value: disasterOther }
+        ];
+        const disasterWeekPie = disasterWeekPieBackend.filter(d => d.name !== "Other");
 
         // Latrine Type Bar
         const latrineTypes = {};
@@ -448,101 +530,74 @@ function ChwCds() {
         });
         const latrineBar = Object.entries(latrineTypes).map(([name, value]) => ({ name, value }));
 
-        // Mosquito Breeding Sites Pie
-        let breedYes = 0, breedNo = 0, breedOther = 0;
-        submissions.forEach(x => {
-            const val = x.presenceofstagnantwatermosquitobreedingsites;
-            if (val === "yes") breedYes++;
-            else if (val === "no") breedNo++;
-            else breedOther++;
-        });
-        const mosquitoBreedPie = [
-            { name: "Yes", value: breedYes },
-            { name: "No", value: breedNo },
-            { name: "Other", value: breedOther }
-        ];
-
-        // Mosquito Larvae Pie
-        let larvaeYes = 0, larvaeNo = 0, larvaeOther = 0;
-        submissions.forEach(x => {
-            const val = x.presenceofmosquitolarvae;
-            if (val === "yes" || val === "aedes" || val === "others") larvaeYes++;
-            else if (val === "no") larvaeNo++;
-            else larvaeOther++;
-        });
-        const mosquitoLarvaePie = [
-            { name: "Yes", value: larvaeYes },
-            { name: "No", value: larvaeNo },
-            { name: "Other", value: larvaeOther }
-        ];
-
-        // Disaster in Last Week Pie
-        let disasterYes = 0, disasterNo = 0, disasterOther = 0;
-        submissions.forEach(x => {
-            const val = x.didanydisasteroccurinlast7days;
-            if (val === "yes") disasterYes++;
-            else if (val === "no") disasterNo++;
-            else disasterOther++;
-        });
-        const disasterWeekPie = [
-            { name: "Yes", value: disasterYes },
-            { name: "No", value: disasterNo },
-            { name: "Other", value: disasterOther }
-        ];
-
         // Disaster Type Bar
         const disasterTypes = {};
         submissions.forEach(x => {
             const types = Array.isArray(x.whattypes)
-                ? x.whattypes : (typeof x.whattypes === "string"
-                    ? x.whattypes.split(" ").filter(Boolean) : []);
-            types.forEach(type => { disasterTypes[type] = (disasterTypes[type] || 0) + 1; });
+                ? x.whattypes
+                : (typeof x.whattypes === "string" ? x.whattypes.split(" ").filter(Boolean) : []);
+            types.forEach(type => {
+                if (type) disasterTypes[type] = (disasterTypes[type] || 0) + 1;
+            });
         });
         const disasterTypeBar = Object.entries(disasterTypes).map(([name, value]) => ({ name, value }));
 
-        // MAP data fix: ensure latitude/longitude are properly parsed for each submission!
+        // NEW: Referral to Govt Facility (horizontal bar)
+        const govtFacilityTypes = {};
+        submissions.forEach(x => {
+            let isGovt = false;
+            // Mobile (organization), Web (referralplace/referral_place)
+            if ((x.organization && x.organization.toLowerCase() === "govt") || normalizeFacility(x.referralplace || x.referral_place) === "Govt") {
+                isGovt = true;
+            }
+            if (isGovt && x.ifreferredtogovt && typeof x.ifreferredtogovt === "string") {
+                govtFacilityTypes[x.ifreferredtogovt] = (govtFacilityTypes[x.ifreferredtogovt] || 0) + 1;
+            }
+        });
+        const govtFacilityBar = Object.entries(govtFacilityTypes).map(([name, value]) => ({ name, value }));
+
+        // MAP data fix
         const mapMarkers = submissions
             .filter(x => typeof x.latitude === "number" && typeof x.longitude === "number")
             .map(x => ({
                 lat: x.latitude,
                 lng: x.longitude,
-                info: x // Additional info to show in popup
+                info: x
             }));
 
         return {
             submissionsOverTime,
-            suspectedRatioPie: [
-                { name: "Suspected", value: suspected },
-                { name: "Not Suspected", value: notSuspected },
-                { name: "Other", value: suspectedOther }
-            ],
-            referralRatePie: [
-                { name: "Yes", value: referredYes },
-                { name: "No", value: referredNo },
-                { name: "Other", value: referredOther }
-            ],
+            suspectedRatioPie,
+            suspectedRatioPieBackend,
+            referralRatePie,
+            referralRatePieBackend,
             genderPie,
             facilityTypePie,
             bednetPie,
+            bednetPieBackend,
             washPie,
+            washPieBackend,
             mosquitoBreedPie,
+            mosquitoBreedPieBackend,
             mosquitoLarvaePie,
+            mosquitoLarvaePieBackend,
             disasterWeekPie,
+            disasterWeekPieBackend,
             suspectedDiseaseBar,
             latrineBar,
             disasterTypeBar,
+            govtFacilityBar,
             totalSubmissions: submissions.length,
-            percentSuspected: Math.round(100 * suspected / ((suspected + notSuspected + suspectedOther) || 1)),
-            referralRate: Math.round(100 * referredYes / ((referredYes + referredNo + referredOther) || 1)),
-            bednetPercent: Math.round(100 * bednetYes / ((bednetYes + bednetNo + bednetOther) || 1)),
-            handwashPercent: Math.round(100 * washYes / ((washYes + washNo + washOther) || 1)),
-            mosquitoBreedPercent: Math.round(100 * breedYes / ((breedYes + breedNo + breedOther) || 1)),
-            mosquitoLarvaePercent: Math.round(100 * larvaeYes / ((larvaeYes + larvaeNo + larvaeOther) || 1)),
-            disasterWeekPercent: Math.round(100 * disasterYes / ((disasterYes + disasterNo + disasterOther) || 1)),
-            mapMarkers // This is the array for your map rendering!
+            percentSuspected: Math.round(100 * suspected / ((suspected + notSuspected) || 1)),
+            referralRate: Math.round(100 * referredYes / ((referredYes + referredNo) || 1)),
+            bednetPercent: Math.round(100 * bednetYes / ((bednetYes + bednetNo) || 1)),
+            handwashPercent: Math.round(100 * washYes / ((washYes + washNo) || 1)),
+            mosquitoBreedPercent: Math.round(100 * breedYes / ((breedYes + breedNo) || 1)),
+            mosquitoLarvaePercent: Math.round(100 * larvaeYes / ((larvaeYes + larvaeNo) || 1)),
+            disasterWeekPercent: Math.round(100 * disasterYes / ((disasterYes + disasterNo) || 1)),
+            mapMarkers
         };
     }
-
 
 
 
@@ -559,6 +614,52 @@ function ChwCds() {
             })),
         [filteredSubmissions]
     );
+
+
+    const mapPoints = filteredSubmissions
+        .filter(row => isValidLatLng(row.latitude, row.longitude));
+
+
+
+    const filterFields = [
+        { key: "organization", label: "Organization" },
+        { key: "bednetusepracticeduringsleep", label: "Bednet Use" },
+        { key: "didanydisasteroccurinlast7days", label: "Disaster Last 7 Days" },
+        { key: "presenceofmosquitolarvae", label: "Mosquito Larvae" },
+        { key: "sex", label: "Gender" },
+        { key: "preg", label: "Pregnant" },
+        { key: "disease", label: "Disease" }
+    ];
+
+    // ---- Filtered Map Points ----
+    const filteredMapPoints = useMemo(() =>
+        filteredSubmissions.filter(row =>
+            filterFields.every(
+                f =>
+                    !mapFilterState[f.key] ||
+                    (Array.isArray(row[f.key])
+                        ? row[f.key].includes(mapFilterState[f.key])
+                        : row[f.key] === mapFilterState[f.key])
+            ) &&
+            isValidLatLng(row.latitude, row.longitude)
+        ),
+        [filteredSubmissions, mapFilterState, filterFields]
+    );
+
+    console.log("filteredMapPoints", filteredMapPoints);
+
+    // Helper function
+    function isValidLatLng(lat, lng) {
+        return (
+            typeof lat === "number" &&
+            typeof lng === "number" &&
+            !isNaN(lat) && !isNaN(lng) &&
+            isFinite(lat) && isFinite(lng) &&
+            Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+        );
+    }
+
+
 
     // const organizationOptions = useMemo(
     //     () => getUnique(filteredSubmissions.map(sub => sub.organization).filter(Boolean)),
@@ -621,7 +722,7 @@ function ChwCds() {
 
 
                     <div className="flex flex-col min-w-[220px] gap-2">
-                        <p className="font-medium text-gray-700">Date range</p>
+                        <p className="font-medium text-gray-700 text-[14px]">Date range</p>
                         <Popover>
                             <PopoverTrigger asChild>
                                 <Button
@@ -760,13 +861,82 @@ function ChwCds() {
                     stat={metrics.genderPie.reduce((sum, d) => sum + d.value, 0)}
                 />
 
+
                 <div className="row-span-2 md:col-span-2 md:row-span-2 lg:col-span-2 lg:row-span-2">
                     <DashboardCard title="Map">
-                        <div className="w-full h-full" style={{ minHeight: 350 }}>
-                            <PatientMap points={points} />
+                        <div className="relative w-full h-full min-h-[350px]">
+                            {/* Floating filter button */}
+                            <button
+                                onClick={() => setShowFilter(prev => !prev)}
+                                className="absolute cursor-pointer bottom-4 left-4 z-[1200] bg-white border border-gray-200 rounded-lg px-3 py-1.5 
+                   text-xs font-medium shadow-md hover:shadow-lg transition flex items-center gap-1"
+                            >
+                                <FiFilter className="text-gray-600 text-sm" />
+                                Filter Map
+                            </button>
+
+                            {/* The actual map */}
+                            <PatientMap points={filteredMapPoints} />
+
+                            {/* Layer control filter modal */}
+                            {showFilter && (
+                                <div
+                                    className="absolute bottom-16 left-6 z-[1500] bg-white rounded-lg shadow-xl 
+                     p-3 w-[200px] max-h-[60%] overflow-y-auto border border-gray-100"
+                                >
+                                    <h3 className="flex items-center gap-1 font-medium text-xs text-gray-700 mb-2">
+                                        <FiFilter className="text-gray-500 text-sm" />
+                                        Questions Filter
+                                    </h3>
+
+                                    {filterFields.map((f) => (
+                                        <div className="mb-2" key={f.key}>
+                                            <label className="text-[11px] font-medium text-gray-600">{f.label}</label>
+                                            {f.key === "facility" ? (
+                                                <select
+                                                    className="mt-0.5 block w-full rounded-md border border-gray-300 bg-gray-50 text-[11px] px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                                    value={mapFilterState.facility || ""}
+                                                    onChange={e => setMapFilterState(prev => ({ ...prev, facility: e.target.value }))}
+                                                >
+                                                    <option value="">All</option>
+                                                    {getFacilityFilterOptions(filteredSubmissions).map(opt => (
+                                                        <option key={opt} value={opt}>{opt}</option>
+                                                    ))}
+                                                </select>
+                                            ) : (
+                                                <select
+                                                    className="mt-0.5 block w-full rounded-md border border-gray-300 bg-gray-50 text-[11px] px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400"
+                                                    value={mapFilterState[f.key] || ""}
+                                                    onChange={e => setMapFilterState(prev => ({ ...prev, [f.key]: e.target.value }))}
+                                                >
+                                                    <option value="">All</option>
+                                                    {getOptions(filteredSubmissions, f.key).map((opt) => (
+                                                        <option key={opt} value={opt}>
+                                                            {opt}
+                                                        </option>
+                                                    ))}
+                                                </select>
+                                            )}
+                                        </div>
+                                    ))}
+
+
+                                    <div className="flex justify-end mt-2">
+                                        <button
+                                            onClick={() => setShowFilter(false)}
+                                            className="bg-red-500 hover:bg-red-600 text-white text-[11px] font-medium 
+                         px-2 py-1 rounded-md transition"
+                                        >
+                                            Close
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </DashboardCard>
                 </div>
+
+
 
                 <MultiPieCard
                     title="Facility Type"
@@ -789,25 +959,24 @@ function ChwCds() {
                     stat={metrics.suspectedDiseaseBar.reduce((sum, d) => sum + d.value, 0)}
                 />
 
-                <HorizontalBarCard
-                    title="Latrine Type"
-                    data={metrics.latrineBar}
-                    colors={["#3296FA", "#60B76D"]}
-                    stat={metrics.latrineBar.reduce((sum, d) => sum + d.value, 0)}
-                />
 
-                <HorizontalBarCard
-                    title="Disaster Types"
-                    data={metrics.disasterTypeBar}
-                    colors={["#FFB300", "#FF6361", "#3296FA", "#60B76D"]}
-                    stat={metrics.disasterTypeBar.reduce((sum, d) => sum + d.value, 0)}
-                />
                 <PieCard
                     title="Handwashing Facilities"
                     data={metrics.washPie}
                     colors={["#FF6361", "#005fbe", "#d9534f"]}
                     stat={`${metrics.handwashPercent}%`}
                 />
+                <div className="row-span-1 md:col-span-2 md:row-span-1 lg:col-span-2 lg:row-span-1">
+                    <HorizontalBarCard
+                        title="Disaster Types"
+                        data={metrics.disasterTypeBar}
+                        colors={["#FFB300", "#FF6361", "#3296FA", "#60B76D", "#9B59B6", "#E67E22"]}
+                        stat={metrics.disasterTypeBar.reduce((sum, d) => sum + d.value, 0)}
+                    />
+                </div>
+
+
+
 
                 <PieCard
                     title="Mosquito Breeding Sites"
@@ -816,12 +985,21 @@ function ChwCds() {
                     stat={`${metrics.mosquitoBreedPercent}%`}
                 />
 
+
                 <PieCard
                     title="Mosquito Larvae Found"
                     data={metrics.mosquitoLarvaePie}
                     colors={["#FF6361", "#005fbe", "#d9534f"]}
                     stat={`${metrics.mosquitoLarvaePercent}%`}
                 />
+                <div className="row-span-1 md:col-span-2 md:row-span-1 lg:col-span-2 lg:row-span-1">
+                    <HorizontalBarCard
+                        title="Latrine Type"
+                        data={metrics.latrineBar}
+                        colors={["#3296FA", "#60B76D", "#FFB300", "#FF6361", "#9B59B6"]}
+                        stat={metrics.latrineBar.reduce((sum, d) => sum + d.value, 0)}
+                    />
+                </div>
 
                 <PieCard
                     title="Disaster in Last Week"
@@ -894,11 +1072,11 @@ function getUnique(arr) {
 function flattenSubmission(x) {
     const direct = x.data;
 
-    // Detect if this is mobile-style submission (no nested groups, flat keys mostly)
+    // Detect mobile-style submission (flat)
     const isMobileSubmission = direct.hasOwnProperty('_id') && direct._id === 'form_1079';
 
     if (isMobileSubmission) {
-        // Mobile submission field extraction (assumes flat structure)
+        // Parse latitude/longitude from location string
         const latitudeLongitude = (direct.location || '').split(' ');
         let latitude = null, longitude = null;
         if (latitudeLongitude.length >= 2) {
@@ -918,7 +1096,7 @@ function flattenSubmission(x) {
             preg: direct.pregnent || direct.pregnant || 'no',
             hhid: direct.hh_id || '',
             hhheadname: direct.hh_head_name || '',
-            mobilenumber: direct.mobile_number || direct.mobile_number || '', // sometimes mobile_number or mobile_number
+            mobilenumber: direct.mobile_number || '',
             patientidtype: direct.patient_id_type || '',
             suspectedinthedisease: direct.suspected_in_the_disease || 'no',
             disease: direct.suspected_disease ? direct.suspected_disease.split(' ').filter(Boolean) : [],
@@ -941,13 +1119,14 @@ function flattenSubmission(x) {
             noofalreadydiagnosedcasesofmalariainthehh: Number(direct['no._of_already_diagnosed_cases_of_malaria_in_the_hh']) || 0,
             noofalreadydiagnosedcasesofawdinthehh: Number(direct['no._of_already_diagnosed_cases_of_awd_in_the_hh']) || 0,
             date: direct.end ? direct.end.slice(0, 10) : direct.date || null,
+            day: direct.end ? direct.end.slice(0, 10) : direct.date || null,
             remarks: direct.remarks || '',
             location: direct.location || '',
             latitude,
             longitude
         };
     } else {
-        // Enketo web submission extraction (nested groups)
+        // Enketo web (nested)
         const referralInfo = direct['referral-relatedinformation'] || {};
         const healthWorkerInfo = direct['healthworkersinformation'] || {};
         const healthBehaviour = direct['healthbehaviour'] || {};
@@ -999,6 +1178,7 @@ function flattenSubmission(x) {
             noofalreadydiagnosedcasesofmalariainthehh: Number(alreadyDiagnosed.noofalreadydiagnosedcasesofmalariainthehh) || 0,
             noofalreadydiagnosedcasesofawdinthehh: Number(alreadyDiagnosed.noofalreadydiagnosedcasesofawdinthehh) || 0,
             date: direct.end ? direct.end.slice(0, 10) : direct.date || null,
+            day: direct.end ? direct.end.slice(0, 10) : direct.date || null,
             remarks: direct.remarks || '',
             location: locationStr,
             latitude,
@@ -1282,7 +1462,7 @@ function HorizontalBarCard({ title, data, colors = ["#005fbe"], stat }) {
                                 className="w-3 h-3 rounded-sm"
                                 style={{ backgroundColor: colors[index % colors.length] }}
                             />
-                            <span className="text-[10px]">{entry.name}</span>
+                            <span className="text-[12px]">{entry.name}</span>
                         </div>
                     ))}
                 </div>
@@ -1326,11 +1506,18 @@ function LineCard({ title, data, stat }) {
     );
 }
 
-
+function isValidLatLng(lat, lng) {
+    return (
+        typeof lat === "number" &&
+        typeof lng === "number" &&
+        !isNaN(lat) && !isNaN(lng) &&
+        isFinite(lat) && isFinite(lng) &&
+        Math.abs(lat) <= 90 && Math.abs(lng) <= 180
+    );
+}
 
 function MarkerClusterLayer({ points }) {
     const map = useMap();
-
     React.useEffect(() => {
         const markerCluster = L.markerClusterGroup({
             iconCreateFunction: (cluster) => {
@@ -1338,50 +1525,46 @@ function MarkerClusterLayer({ points }) {
                 const size = 20 + Math.log(count) * 10;
                 return L.divIcon({
                     html: `<div style="
-                        background: rgba(255,78,46,0.6);
-                        border: 2px solid #fff;
-                        border-radius: 50%;
-                        width:${size}px;
-                        height:${size}px;
-                        display:flex;
-                        align-items:center;
-                        justify-content:center;
-                        color:#fff;
-                        font-size:12px;
-                        font-weight:bold;
-                    ">${count}</div>`,
+                    background: rgba(255,78,46,0.6);
+                    border: 2px solid #fff;
+                    border-radius: 50%;
+                    width:${size}px;
+                    height:${size}px;
+                    display:flex;
+                    align-items:center;
+                    justify-content:center;
+                    color:#fff;
+                    font-size:12px;
+                    font-weight:bold;
+                ">${count}</div>`,
                     className: "custom-cluster-icon",
                     iconSize: [size, size],
                 });
             },
         });
 
-        points.forEach((pt) => {
-            const radius = 4 + Math.log(Math.max(Number(pt.age) || 1, 1));
-            const circleMarker = L.circleMarker([pt.lat, pt.lng], {
-                radius,
-                fillColor: "#ff4e2e",
-                color: "#fff",
-                weight: 1,
-                opacity: 1,
-                fillOpacity: 0.6,
+        points
+            .filter(pt => isValidLatLng(pt.latitude, pt.longitude))
+            .forEach((pt) => {
+                const radius = 4 + Math.log(Math.max(Number(pt.age) || 1, 1));
+                const circleMarker = L.circleMarker([pt.latitude, pt.longitude], {
+                    radius,
+                    fillColor: "#ff4e2e",
+                    color: "#fff",
+                    weight: 1,
+                    opacity: 1,
+                    fillOpacity: 0.6,
+                });
+                circleMarker.bindPopup(getPopupContent(pt));
+                markerCluster.addLayer(circleMarker);
             });
 
-            // Add popup with details (table style)
-            circleMarker.bindPopup(getPopupContent(pt));
-
-            markerCluster.addLayer(circleMarker);
-        });
-
         map.addLayer(markerCluster);
-
-        return () => {
-            map.removeLayer(markerCluster);
-        };
+        return () => { map.removeLayer(markerCluster); }
     }, [map, points]);
-
     return null;
 }
+
 
 
 function PatientMap({ points }) {
@@ -1406,9 +1589,9 @@ function getPopupContent(pt) {
     <div style="
       font-size:13px;
       min-width:220px;
-      max-width:300px;
-      max-height:200px; /* limit height */
-      overflow-y:auto;  /* enable scroll */
+      max-width:350px;
+      max-height:230px;
+      overflow-y:auto;
       font-family: 'Segoe UI', Arial, sans-serif;
       color:#2b3e50;
     ">
@@ -1419,45 +1602,175 @@ function getPopupContent(pt) {
       ">
         <tbody>
           ${[
-            ["Submission Date", pt.day || ""],
-            ["Name", pt.name_of_the_person_with_suspected_case || "-"],
+            ["Submission Date", pt.day || "-"],
+            ["Name (Suspected Case)", pt.nameofthepersonwithsuspectedcase || "-"],
             ["Age", pt.age || "-"],
             ["Sex", pt.sex || "-"],
-            ["Phone", pt.mobile_number || "-"],
+            ["Pregnant?", pt.preg || "-"],
+            ["Phone", pt.mobilenumber || "-"],
             ["Disease(s)", Array.isArray(pt.disease) ? pt.disease.join(", ") : (pt.disease || "-")],
-            ["Suspected", pt.suspected_in_the_disease || "-"],
+            ["Suspected Disease?", pt.suspectedinthedisease || "-"],
+
             ["Division", pt.division || "-"],
             ["District", pt.district || "-"],
             ["Upazila", pt.upazila || "-"],
             ["Union", pt.union || "-"],
             ["Ward", pt.ward || "-"],
             ["Area", pt.area || "-"],
-            ["Referral", pt.referred || "-"],
-            ["Facility", pt.referral_place || "-"],
+
+            ["Household ID", pt.hhid || "-"],
+            ["Household Head", pt.hhheadname || "-"],
+            ["Patient ID Type", pt.patientidtype || "-"],
+
+            ["Referred?", pt.referred || "-"],
+            ["Referral Place", normalizeFacility(pt.referralplace)],
+            ["If referred to govt", pt.ifreferredtogovt || "-"],
+
             ["Organization", pt.organization || "-"],
-        ]
-            .map(
-                ([label, value], i) => `
+            ["Designation", pt.designation || "-"],
+            ["Staff Name", pt.nameofstaff || "-"],
+
+            ["Bednet Use During Sleep?", pt.bednetusepracticeduringsleep || "-"],
+            ["Handwashing Practice?", pt.handwashingpracticewithsoapwater || "-"],
+            ["Latrine Type", pt.typelatrineuse || "-"],
+            ["Mosquito Larvae", pt.presenceofmosquitolarvae || "-"],
+            ["Stagnant Water Breeding?", pt.presenceofstagnantwatermosquitobreedingsites || "-"],
+
+            ["Disaster Last 7 Days?", pt.didanydisasteroccurinlast7days || "-"],
+            ["Disaster Type(s)", Array.isArray(pt.whattypes) ? pt.whattypes.join(", ") : (pt.whattypes || "-")],
+
+            // ["Diagnosed Dengue", pt.noofalreadydiagnosedcasesofdengueinthehh ?? "-"],
+            // ["Diagnosed Malaria", pt.noofalreadydiagnosedcasesofmalariainthehh ?? "-"],
+            // ["Diagnosed AWD", pt.noofalreadydiagnosedcasesofawdinthehh ?? "-"],
+            ["Date", pt.date || "-"],
+            ["Remarks", pt.remarks || "-"],
+        ].map(
+            ([label, value], i) => `
                 <tr style="background:${i % 2 === 0 ? "#f9fbfd" : "#ffffff"};">
                   <td style="
                     padding:6px 8px;
                     font-weight:600;
                     color:#4a6572;
                     border-bottom:1px solid #e0e6ed;
-                    width:40%;
+                    width:44%;
                   ">${label}:</td>
                   <td style="
                     padding:6px 8px;
                     border-bottom:1px solid #e0e6ed;
                     word-wrap:break-word;
                   ">${value}</td>
-                </tr>
-              `
-            )
-            .join("")}
+                </tr>`
+        ).join("")}
         </tbody>
       </table>
     </div>
-  `;
+    `;
 }
 
+
+function normalizeFacility(raw) {
+    if (!raw) return "-";
+    const v = raw.toLowerCase();
+    if (
+        [
+            "govt",
+            "government",
+            "community_clinic",
+            "upazila_health_complex",
+            "union_sub-centre",
+            "district_hospital",
+            "medical_college_hospital"
+        ].some(x => v.includes(x))
+    ) return "Govt";
+    if (v.includes("brac")) return "BRAC";
+    if (v.includes("priv") || v.includes("private")) return "Private";
+    return raw;
+}
+
+
+function getFacilityFilterOptions(rows) {
+    const found = new Set();
+    rows.forEach(row => {
+        // Mobile submission: organization field
+        if (row.organization) {
+            const val = row.organization.toLowerCase();
+            if (val === "govt" || val === "government") found.add("Govt");
+            if (val === "brac") found.add("BRAC");
+            if (val.includes("priv")) found.add("Private");
+        }
+        // Enketo/web: referralplace field
+        if (row.referralplace) {
+            const val = row.referralplace.toLowerCase();
+            if (val === "govt" || val === "government") found.add("Govt");
+            if (val === "brac") found.add("BRAC");
+            if (val.includes("priv")) found.add("Private");
+        }
+    });
+    return Array.from(found);
+}
+
+
+function getOptions(rows, field) {
+    const opts = new Set();
+    rows.forEach(row => {
+        const val = row[field];
+        if (Array.isArray(val)) val.forEach(v => v && opts.add(v));
+        else if (val) opts.add(val);
+    });
+    return Array.from(opts);
+}
+
+function MapFilterModal({ allRows, filterFields, filterState, setFilterState, onClose }) {
+    const filterOptions = useMemo(() => {
+        const opts = {};
+        filterFields.forEach(f => {
+            opts[f.key] = getOptions(allRows, f.key);
+        });
+        return opts;
+    }, [allRows, filterFields]);
+
+    function handleChange(field, value) {
+        setFilterState(prev => ({ ...prev, [field]: value }));
+    }
+
+    return (
+        <div style={{
+            position: "fixed",
+            bottom: 60,
+            left: 30,
+            zIndex: 1500,
+            background: "white",
+            padding: "18px",
+            borderRadius: "12px",
+            boxShadow: "0 8px 24px rgba(0,0,0,0.25)",
+            minWidth: "240px"
+        }}>
+            <strong>Map Filter</strong>
+            {filterFields.map(f => (
+                <div style={{ margin: "8px 0" }} key={f.key}>
+                    <label style={{ fontSize: "14px" }}>{f.label}</label>
+                    <select
+                        style={{ width: "100%", marginTop: "3px", fontSize: "13.5px", background: "#F3F6F9" }}
+                        value={filterState[f.key] || ""}
+                        onChange={e => handleChange(f.key, e.target.value)}
+                    >
+                        <option value="">All</option>
+                        {filterOptions[f.key].map(opt => (
+                            <option key={opt} value={opt}>{opt}</option>
+                        ))}
+                    </select>
+                </div>
+            ))}
+            <div style={{ textAlign: "right", marginTop: "16px" }}>
+                <button onClick={onClose}
+                    style={{
+                        background: "#ff4e2e", color: "#fff", border: 0, borderRadius: "4px",
+                        padding: "4px 12px", fontWeight: "bold"
+                    }}
+                >
+                    Close
+                </button>
+            </div>
+        </div>
+    );
+}
