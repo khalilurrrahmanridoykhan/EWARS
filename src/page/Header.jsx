@@ -201,7 +201,7 @@ export default function Header() {
                                 className="block w-full px-4 py-2 text-left hover:bg-blue-50 text-sm"
                                 onClick={() => setAvatarMenuOpen(false)}
                             >
-                                About Our Model
+                                Mechanism of Model
                             </Link>
                         </div>
                     )}

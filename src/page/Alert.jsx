@@ -76,6 +76,8 @@ function Alert() {
     const [selectedUpazilasAlert, setSelectedUpazilasAlert] = useState([]); // for selecting data to include
 
     const [customBody, setCustomBody] = useState(false);
+    const [customEmails, setCustomEmails] = useState([]);
+    const [newEmailInput, setNewEmailInput] = useState('');
 
 
 
@@ -289,7 +291,7 @@ function Alert() {
     }, [months, upazilas, forecastResults, threshold]);
 
     return (
-        <div className="flex flex-col h-screen lg:flex-row">
+        <div className="flex flex-col lg:flex-row">
             {/* Sidebar */}
             <aside className="w-full lg:w-[20%] lg:max-w-sm bg-blue-50 border-b lg:border-r border-gray-300 p-4 space-y-4">
                 {/* <h1 className="text-xl font-bold text-blue-900">Malaria Risk Tracker</h1> */}
@@ -348,7 +350,7 @@ function Alert() {
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 px-4 overflow-y-auto">
+            <main className="flex-1 px-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
                     <div className=" bg-white border rounded shadow p-4">
                         <ResponsiveContainer width="100%" height={320}>
@@ -458,28 +460,58 @@ function Alert() {
                             {/* Recipients */}
                             <div>
                                 <label className="font-medium text-sm block mb-1">Recipients:</label>
-                                <div className="space-y-2">
-                                    {EMAILS.map(e => (
-                                        <label key={e.email} className="flex items-center gap-2">
+                                <div className="space-y-2 mt-2">
+                                    {[...EMAILS.map(e => e.email), ...customEmails].map(email => (
+                                        <label key={email} className="flex items-center gap-2">
                                             <input
                                                 type="checkbox"
                                                 className="h-4 w-4 accent-blue-600"
-                                                checked={mailRecipients.includes(e.email)}
+                                                checked={mailRecipients.includes(email)}
                                                 onChange={ev =>
-                                                    setMailRecipients(r =>
-                                                        ev.target.checked
-                                                            ? [...r, e.email]
-                                                            : r.filter(x => x !== e.email)
+                                                    setMailRecipients(ev.target.checked
+                                                        ? [...mailRecipients, email]
+                                                        : mailRecipients.filter(x => x !== email)
                                                     )
                                                 }
                                             />
-                                            <span>
-                                                {e.label || e.email}{" "}
-                                                <span className="text-xs text-gray-500">({e.email})</span>
-                                            </span>
+                                            <span>{email}</span>
+                                            {customEmails.includes(email) && (
+                                                <button
+                                                    className="text-xs text-red-500 ml-2"
+                                                    onClick={() =>
+                                                        setCustomEmails(customEmails.filter(x => x !== email))
+                                                    }
+                                                    type="button"
+                                                >
+                                                    Remove
+                                                </button>
+                                            )}
                                         </label>
                                     ))}
                                 </div>
+
+                            </div>
+
+                            <div className="mt-2 flex gap-2">
+                                <input
+                                    type="email"
+                                    value={newEmailInput}
+                                    onChange={e => setNewEmailInput(e.target.value)}
+                                    className="border rounded px-3 py-2 w-full"
+                                    placeholder="Add custom email address"
+                                />
+                                <button
+                                    onClick={() => {
+                                        if (newEmailInput && !customEmails.includes(newEmailInput)) {
+                                            setCustomEmails([...customEmails, newEmailInput]);
+                                            setNewEmailInput('');
+                                        }
+                                    }}
+                                    className="bg-blue-600 text-white px-4 py-2 rounded"
+                                    type="button"
+                                >
+                                    Add
+                                </button>
                             </div>
 
                             {/* Subject */}
@@ -492,6 +524,7 @@ function Alert() {
                                     onChange={e => setMailSubject(e.target.value)}
                                 />
                             </div>
+
 
                             {/* Upazila selection */}
                             <div>
@@ -517,13 +550,6 @@ function Alert() {
                                 </div>
                             </div>
 
-                            {/* Body */}
-                            {/* <div>
-                                <label className="font-medium text-sm block mb-1">Body Preview:</label>
-                                <div className="border rounded-lg p-3 w-full bg-gray-50" style={{ minHeight: 120 }}>
-                                    <div dangerouslySetInnerHTML={{ __html: mailBody }} />
-                                </div>
-                            </div> */}
                         </div>
 
                         {/* Footer */}
@@ -564,7 +590,7 @@ function Alert() {
         </table>`;
                                     }
                                     try {
-                                        await axios.post("http://localhost:5000/send-alert", {
+                                        await axios.post("https://ewars-mails.onrender.com/send-alert", {
                                             emails: mailRecipients,
                                             subject: mailSubject,
                                             body
