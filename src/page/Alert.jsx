@@ -79,6 +79,10 @@ function Alert() {
     const [customEmails, setCustomEmails] = useState([]);
     const [newEmailInput, setNewEmailInput] = useState('');
 
+    const [sendingMail, setSendingMail] = useState(false);
+
+
+
 
 
     console.log("actualData:", actualData);
@@ -292,6 +296,10 @@ function Alert() {
 
     return (
         <div className="flex flex-col lg:flex-row">
+
+            {sendingMail && <SendMailOverlay />}
+
+
             {/* Sidebar */}
             <aside className="w-full lg:w-[20%] lg:max-w-sm bg-blue-50 border-b lg:border-r border-gray-300 p-4 space-y-4">
                 {/* <h1 className="text-xl font-bold text-blue-900">Malaria Risk Tracker</h1> */}
@@ -589,6 +597,7 @@ function Alert() {
           ${rows}
         </table>`;
                                     }
+                                    setSendingMail(true);
                                     try {
                                         await axios.post("https://ewars-mails.onrender.com/send-alert", {
                                             emails: mailRecipients,
@@ -601,6 +610,8 @@ function Alert() {
                                         toast.error(
                                             "Failed to send mail: " + (e.response?.data?.message || e.message)
                                         );
+                                    } finally {
+                                        setSendingMail(false);
                                     }
                                 }}
                             >
@@ -1142,3 +1153,53 @@ function getRiskTag(cases) {
         return `<span style="color:#fff; background:#f59e42; border-radius:5px; padding:2px 7px; font-weight:bold;">Mid</span>`;
     return `<span style="color:#fff; background:#22c55e; border-radius:5px; padding:2px 7px; font-weight:bold;">Low</span>`;
 }
+
+
+function SendMailOverlay() {
+    return (
+        <div style={{
+            position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
+            background: "rgba(0, 0, 0, 0.5)", zIndex: 9999,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            flexDirection: "column", transition: "opacity 0.3s ease-in-out"
+        }}>
+            <div style={{
+                fontSize: 24, marginBottom: 20, color: "#ffffff", fontWeight: "bold",
+                textAlign: "center", letterSpacing: "1px", animation: "fadeIn 0.5s ease-in-out"
+            }}>
+                Sending mail...
+            </div>
+            <div className="loader" style={{
+                borderTop: "8px solid #fff", borderRight: "8px solid transparent", borderRadius: "50%",
+                width: "40px", height: "40px", borderWidth: "8px", animation: "spin 1s linear infinite"
+            }} />
+        </div>
+    );
+}
+
+const styles = {
+    fadeIn: {
+        animation: "fadeIn 0.5s ease-in-out"
+    },
+    spin: {
+        animation: "spin 1s linear infinite"
+    }
+}
+
+// Add CSS keyframes for animations
+const styleSheet = document.styleSheets[0];
+styleSheet.insertRule(`
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+`, styleSheet.cssRules.length);
+
+styleSheet.insertRule(`
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+`, styleSheet.cssRules.length);
+
+
