@@ -55,11 +55,34 @@ export default function MalariaRiskTracker() {
     const [selectedUpazila, setSelectedUpazila] = useState(""); // e.g. "Teknaf"
     const [forecastResults, setForecastResults] = useState([]); // Will hold the API re
 
+    const [progress, setProgress] = useState({ total: 0, completed: 0, percentage: 0 });
+    const [fetching, setFetching] = useState(false);
+
+
     const baseDate = new Date();
+
+
+    const get12Months = (selectedDate) => {
+        let arr = [];
+        for (let i = 0; i < 12; i++) {
+            const d = new Date(selectedDate.getFullYear(), selectedDate.getMonth() - (11 - i), 1);
+            arr.push({
+                label: `${monthNames[d.getMonth()]} ${d.getFullYear()}`,
+                code: d.toISOString().slice(0, 10),
+            });
+        }
+        return arr;
+    };
+
     const months = useMemo(
-        () => getMonthVariants(selectedMonth ? new Date(selectedMonth) : new Date()),
+        () => get12Months(selectedMonth ? new Date(selectedMonth) : new Date()),
         [selectedMonth]
     );
+
+    console.log("months:", months);
+    const mapMonths = months.slice(-3); // last 3 months for the maps
+    console.log("mapMonths:", mapMonths);
+
 
 
     const [threshold, setThreshold] = useState(100);
@@ -83,7 +106,7 @@ export default function MalariaRiskTracker() {
             });
     }, []);
 
-
+    //mis data
     useEffect(() => {
         // Only run when geoJson is loadedL.geo
         if (!geoJson || !geoJson.features) return;
@@ -134,30 +157,97 @@ export default function MalariaRiskTracker() {
         return [prev, curr, next].map(d => d.toISOString().slice(0, 10));
     };
 
+    function getPreviousMonthLabel(label) {
+        if (!label || typeof label !== "string" || !label.includes(" ")) return "";
+        const [monthStr, yearStr] = label.split(" ");
+        let monthIdx = monthNames.findIndex(m => m === monthStr);
+        let year = parseInt(yearStr, 10);
+        monthIdx--;
+        if (monthIdx < 0) {
+            monthIdx = 11;
+            year--;
+        }
+        return `${monthNames[monthIdx]} ${year}`;
+    }
+
+
+
     const handleGenerate = async () => {
         if (!selectedUpazilas.length || !selectedMonth) {
             toast.error("Please select at least one Upazila and a month.");
             return;
         }
-        const months = getAdjacentMonths(selectedMonth);
-        const results = await Promise.all(
-            selectedUpazilas.flatMap(upazila =>
-                months.map(month =>
-                    axios.post("/api/predict_simple", { upa_name: upazila, forecast_month: month })
-                        .then(res => {
-                            toast.success(`Data loaded for ${upazila} (${month})`);
-                            return { ...res.data, upa_name: upazila, forecast_month: month };
-                        })
-                        .catch(() => {
-                            toast.error(`Failed to fetch data for ${upazila} - ${month}`);
-                            return null;
-                        })
-                )
+
+        const months = get12Months(selectedMonth);
+
+        const fetchFuncs = selectedUpazilas.flatMap(upazila =>
+            months.map(month => () => axios.post("/api/predict_simple", { upa_name: upazila, forecast_month: month.code })
+                .then(res => {
+                    toast.success(`Data loaded for ${upazila} (${month.label})`);
+                    return { ...res.data, upa_name: upazila, forecast_month: month.code };
+                })
+                .catch(() => {
+                    toast.error(`Failed to fetch data for ${upazila} - ${month.label}`);
+                    return null;
+                })
             )
         );
-        setForecastResults(results.filter(Boolean));
+
+        setProgress({ total: fetchFuncs.length, completed: 0, percentage: 0 });
+        setFetching(true); // Start overlay
+
+        try {
+            const results = await runBatchedRequests(fetchFuncs, 1, 400);
+            setForecastResults(results.filter(Boolean));
+        } finally {
+            setFetching(false); // Always clear overlay on finish/error
+        }
     };
 
+
+    // Utility: runs async funcs in batches of N with delay between each batch
+    async function runBatchedRequests(fetchFuncs, batchSize = 1, delayMs = 400) {
+        const results = [];
+
+        for (let i = 0; i < fetchFuncs.length; i += batchSize) {
+            const batch = fetchFuncs.slice(i, i + batchSize);
+
+            // Wait for this batch to settle (all promises), regardless of success or failure
+            const batchResults = await Promise.allSettled(batch.map(fn => fn()));
+
+            // Collect all results (including rejected ones)
+            batchResults.forEach(result => {
+                if (result.status === "fulfilled") {
+                    results.push(result.value);
+                } else {
+                    console.error("Batch request failed", result.reason);
+                }
+            });
+
+            // Update progress
+            updateProgress(results.length, fetchFuncs.length);
+
+            // Wait for 400ms before starting the next batch
+            await delayMsFunc(delayMs);
+        }
+
+        return results;
+    }
+
+    // Update progress state
+    function updateProgress(completed, total) {
+        const percentage = Math.floor((completed / total) * 100);
+        setProgress(prevState => ({
+            ...prevState,
+            completed,
+            percentage
+        }));
+    }
+
+    // Utility function to delay for a specified amount of time (in ms)
+    function delayMsFunc(ms) {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
 
 
 
@@ -255,15 +345,18 @@ export default function MalariaRiskTracker() {
 
 
     console.log("chartSeriesData:", chartSeriesData);
+    console.log("monthsssss:", months);
 
 
     return (
         <div className="flex flex-col lg:flex-row">
+            {fetching && <ProgressOverlay progress={progress} />}
+
             {/* Sidebar */}
             <aside className="w-full lg:w-[20%] lg:max-w-sm bg-blue-50 border-b lg:border-r border-gray-300 px-4 py-1 space-y-4">
                 {/* <h1 className="text-xl font-bold text-blue-900">Malaria Risk Tracker</h1> */}
 
-                <div className="grid grid-cols-2 gap-4 lg:grid-cols-1">
+                <div className="grid grid-cols-2 gap-4 lg:grid-cols-1 z-[999]">
                     <HierarchicalMultiSelect
                         label="Division"
                         options={hierarchy.divisions}
@@ -309,7 +402,7 @@ export default function MalariaRiskTracker() {
             {/* Main Content */}
             <main className="flex-1 px-4 overflow-y-auto">
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-                    {months.map((m, i) => (
+                    {mapMonths.map((m, i) => (
                         <MapCard
                             key={`pred-${i}`}
                             title={`Predictive Case – ${getPreviousMonthLabel(m.label)}`}
@@ -323,7 +416,7 @@ export default function MalariaRiskTracker() {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
-                    {months.map((m, i) => (
+                    {mapMonths.map((m, i) => (
 
                         <MapCard
                             key={`act-${i}`}
@@ -456,7 +549,7 @@ function MonthPicker({ label, date, setDate }) {
                         <CalendarIcon className="h-4 w-4 opacity-50" />
                     </button>
                 </PopoverTrigger>
-                <PopoverContent className="p-4 w-64">
+                <PopoverContent className="p-4 w-64 z-[9999]">
                     <div className="flex justify-between items-center mb-3">
                         <button onClick={() => setYear(year - 1)}>
                             <ChevronLeft className="w-4 h-4" />
@@ -1008,3 +1101,45 @@ function BippingMarker({
 
     return null;
 }
+
+
+function ProgressOverlay({ progress }) {
+    return (
+        <div style={{
+            position: 'fixed',
+            zIndex: 9999,
+            top: 0, left: 0,
+            width: '100vw',
+            height: '100vh',
+            background: 'rgba(255,255,255,0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'column'
+        }}>
+            <div style={{ fontSize: 22, marginBottom: 20, color: '#333' }}>
+                Fetching prediction data...
+            </div>
+            <div style={{ width: 320 }}>
+                <ProgressBar percentage={progress.percentage} />
+                <div style={{ marginTop: 10, color: '#666', textAlign: 'center' }}>
+
+                    <span className="text-lg text-black">{progress.percentage}%</span>  &nbsp;|&nbsp; <span className="text-xs"> {progress.completed} / {progress.total} </span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+
+const ProgressBar = ({ percentage }) => (
+    <div style={{ width: '100%', backgroundColor: '#eee', borderRadius: 8, height: 22, overflow: 'hidden' }}>
+        <div style={{
+            width: `${percentage}%`,
+            background: 'linear-gradient(90deg, #4caf50 60%, #66bb6a 100%)',
+            height: '100%',
+            borderRadius: 8,
+            transition: 'width 0.2s'
+        }} />
+    </div>
+);
