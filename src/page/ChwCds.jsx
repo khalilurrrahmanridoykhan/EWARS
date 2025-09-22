@@ -79,6 +79,7 @@ function ChwCds() {
 
 
     // On data load, select everything by default
+    // On data load, select everything by default
     useEffect(() => {
         if (!h) return;
         setSelectedDivisions(h.divisionOptions);
@@ -89,7 +90,8 @@ function ChwCds() {
         setSelectedAreas(h.areaOptions);
         setSelectedOrganizations(h.organizationOptions);
         setSelectedDiseases(h.diseaseOptions);
-    }, [!!h]);
+    }, [h]);
+
 
     // Chaining logic
     useEffect(() => {

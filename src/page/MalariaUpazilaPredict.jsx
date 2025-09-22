@@ -66,6 +66,8 @@ export default function MalariaRiskTracker() {
 
     console.log("actualData:", actualData);
 
+    console.log("forecastResults:", forecastResults);
+
 
 
     // Load geojson and setup initial selection
@@ -216,19 +218,43 @@ export default function MalariaRiskTracker() {
         Array.from(new Set(forecastResults.map(d => d.upa_name)))
     ), [forecastResults]);
 
+    const upazilas2 = useMemo(() => {
+        const predNames = forecastResults.map(d => d.upa_name && d.upa_name.trim()).filter(Boolean);
+        const actNames = actualData.map(d => d.UpazilaName && d.UpazilaName.trim()).filter(Boolean);
+        return Array.from(
+            new Set([...predNames, ...actNames].map(n => n.toLowerCase()))
+        ).map(n => predNames.find(p => p.toLowerCase() === n) || actNames.find(a => a.toLowerCase() === n) || n);
+    }, [forecastResults, actualData]);
+
+
     const chartSeriesData = useMemo(() => {
         return months.map(month => {
             const entry = { month: month.label, threshold };
-            upazilas.forEach(upz => {
-                // Find this upazila's prediction for this month
-                const pred = forecastResults.find(d =>
-                    d.upa_name === upz && d.forecast_month === month.code
+            upazilas2.forEach((upz) => {
+                // Find prediction for this upazila and month
+                const pred = forecastResults.find(
+                    d => d.upa_name && d.upa_name.trim().toLowerCase() === upz.trim().toLowerCase() &&
+                        d.forecast_month === month.code
                 );
-                entry[upz] = pred ? Math.round(pred.pred_cases) : null;
+                entry[`${upz}_predicted`] = pred ? Math.round(pred.pred_cases) : null;
+
+                // Find actual for this upazila and month
+                const actual = actualData.find(
+                    d => d.UpazilaName && d.UpazilaName.trim().toLowerCase() === upz.trim().toLowerCase() &&
+                        String(d.ReportYear) === String(new Date(month.code).getFullYear()) &&
+                        d.ReportMonth && d.ReportMonth.trim().toLowerCase() ===
+                        monthNames[new Date(month.code).getMonth()].toLowerCase()
+                );
+                entry[`${upz}_actual`] = actual ? Number(actual.CASEE) : null;
             });
+
             return entry;
         });
-    }, [months, upazilas, forecastResults, threshold]);
+    }, [months, upazilas, forecastResults, actualData, threshold]);
+
+
+
+    console.log("chartSeriesData:", chartSeriesData);
 
 
     return (
@@ -317,29 +343,59 @@ export default function MalariaRiskTracker() {
                             <CartesianGrid strokeDasharray="3 3" />
                             <XAxis dataKey="month" />
                             <YAxis />
-                            <Tooltip />
-                            <Legend />
-                            <Line
-                                type="monotone"
-                                dataKey="threshold"
-                                stroke="#ef4444"
-                                isAnimationActive={false}
-                                strokeWidth={2}
-                                dot={false}
+
+                            <Legend />  <Tooltip
+                                className="z-[999]"
+                                content={({ active, payload, label }) => {
+                                    if (!active || !payload) return null;
+                                    return (
+                                        <div className="p-2 bg-white border rounded shadow">
+                                            <div className="font-bold mb-2">{label}</div>
+                                            {payload.map((p, i) => {
+                                                let kind =
+                                                    p.dataKey.endsWith("_actual")
+                                                        ? "Actual"
+                                                        : p.dataKey.endsWith("_predicted")
+                                                            ? "Prediction"
+                                                            : "";
+                                                return (
+                                                    <div key={p.dataKey} style={{ color: p.color }}>
+                                                        {p.name}
+                                                        : <b>{p.value}</b>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    );
+                                }}
                             />
+                            <Line type="monotone" dataKey="threshold" stroke="#ef4444" dot={false} />
                             {upazilas.map((upz, idx) => (
-                                <Line
-                                    key={upz}
-                                    type="monotone"
-                                    dataKey={upz}
-                                    name={upz}
-                                    stroke={chartColor(idx)}
-                                    dot={<BlinkingDot />}
-                                    strokeWidth={2}
-                                    connectNulls
-                                    isAnimationActive={false}
-                                />
+                                <React.Fragment key={upz}>
+                                    <Line
+                                        type="monotone"
+                                        dataKey={`${upz}_predicted`}
+                                        name={`${upz} (predicted)`}
+                                        stroke={chartColor(idx)}
+                                        dot={false}
+                                        strokeWidth={2}
+                                        connectNulls
+                                        isAnimationActive={false}
+                                    />
+                                    <Line
+                                        type="monotone"
+                                        dataKey={`${upz}_actual`}
+                                        name={`${upz} (actual)`}
+                                        stroke={chartColor(idx)}
+                                        dot={false}
+                                        strokeDasharray="6 3"
+                                        strokeWidth={2}
+                                        connectNulls
+                                        isAnimationActive={false}
+                                    />
+                                </React.Fragment>
                             ))}
+
                             <Brush
                                 dataKey="month"
                                 height={40}
@@ -619,7 +675,7 @@ function GeoJSONLayer({
                 lyr.bindPopup(html);
 
                 // --- ZOOM LABELS ---
-                if (cases !== null && zoom >= 8) {
+                if (cases !== null && zoom >= 9) {
                     const centroid = getCentroid(feature.geometry);
                     const div = L.divIcon({
                         className: "",
