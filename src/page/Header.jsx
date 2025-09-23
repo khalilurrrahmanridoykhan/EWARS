@@ -20,7 +20,7 @@ const riskOptions = {
     awd: [{ name: "Surv Site", href: "/risk-map/surv" }]
 };
 const predictionOptions = {
-    malaria: [{ name: "Upazila", href: "/diseases/predict/malaria" }],
+    malaria: [{ name: "Upazila", href: "/malaria/predict/upazila" }, { name: "Species", href: "/malaria/predict/species" }],
     dengue: [{ name: "District", href: "/prediction/dengue" }],
     awd: [{ name: "Surv Site", href: "/prediction/awd" }]
 };

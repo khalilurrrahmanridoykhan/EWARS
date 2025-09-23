@@ -25,6 +25,13 @@ export default defineConfig({
         secure: false,
         rewrite: (path) => path.replace(/^\/lmis/, ""),
       },
+      // Add this section for prediction APIs
+      "/models": {
+        target: "http://api2.commicplan.com",
+        changeOrigin: true,
+        secure: false,
+        rewrite: (path) => path.replace(/^\/models/, "/models"),
+      },
     },
   },
 });

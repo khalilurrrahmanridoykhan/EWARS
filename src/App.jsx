@@ -7,6 +7,7 @@ import ChwCds from "./page/ChwCds";
 import MalariaRiskTracker from "./page/MalariaUpazilaPredict";
 import Alert from "./page/Alert";
 import OurModel from "./page/OurModel";
+import MalariaSpecies from "./page/MalariaSpecis";
 
 
 
@@ -25,7 +26,8 @@ function App() {
           <Route path="/" element={<AdminLayout />}>
             <Route path="/data" element={<DataPage />} />
             <Route path="/diseases/malaria" element={<Malaria />} />
-            <Route path="/diseases/predict/malaria" element={<MalariaRiskTracker />} />
+            <Route path="/malaria/predict/upazila" element={<MalariaRiskTracker />} />
+            <Route path="/malaria/predict/species" element={<MalariaSpecies />} />
             <Route path="*" element={<PageNotFound />} />
             <Route path="/chw_cds" element={<ChwCds />} />
             <Route path="/model" element={<OurModel />} />
