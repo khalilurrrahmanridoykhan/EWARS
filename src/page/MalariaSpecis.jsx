@@ -517,6 +517,7 @@ export default function MalariaSpecies() {
                             <img src="/images/brac.png" alt="BRAC" className="h-8 sm:h-10 lg:h-16 w-auto object-contain" />
                             <img src="/images/moru.png" alt="MORU" className="h-8 sm:h-10 lg:h-16 w-auto object-contain" />
                             <img src="/images/groupmapper.png" alt="GroupMapper" className="h-8 sm:h-10 lg:h-16 w-auto object-contain" />
+                            <img src="/images/imacs.png" alt="imacs" className="h-8 sm:h-10 lg:h-16 w-auto object-contain" />
 
 
 
