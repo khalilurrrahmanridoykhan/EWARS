@@ -197,7 +197,7 @@ export default function MalariaRiskTracker() {
         setFetching(true); // Start overlay
 
         try {
-            const results = await runBatchedRequests(fetchFuncs, 1, 400);
+            const results = await runBatchedRequests(fetchFuncs, 1, 200);
             setForecastResults(results.filter(Boolean));
         } finally {
             setFetching(false); // Always clear overlay on finish/error
@@ -206,7 +206,7 @@ export default function MalariaRiskTracker() {
 
 
     // Utility: runs async funcs in batches of N with delay between each batch
-    async function runBatchedRequests(fetchFuncs, batchSize = 1, delayMs = 400) {
+    async function runBatchedRequests(fetchFuncs, batchSize = 1, delayMs = 200) {
         const results = [];
 
         for (let i = 0; i < fetchFuncs.length; i += batchSize) {
@@ -350,7 +350,7 @@ export default function MalariaRiskTracker() {
 
     return (
         <div className="flex flex-col lg:flex-row">
-            {fetching && <ProgressOverlay progress={progress} />}
+            {/* {fetching && <ProgressOverlay progress={progress} />} */}
 
             {/* Sidebar */}
             <aside className="w-full lg:w-[20%] lg:max-w-sm bg-blue-50 border-b lg:border-r border-gray-300 px-4 py-1 space-y-4">
@@ -393,9 +393,18 @@ export default function MalariaRiskTracker() {
                             style={{ fontSize: "14px" }}
                         />
                     </div>
-                    <button onClick={handleGenerate} className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
-                        Generate
+                    <button
+                        onClick={handleGenerate}
+                        disabled={fetching}
+                        className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded flex items-center justify-center"
+                    >
+                        {fetching ? (
+                            <div className="w-5 h-5 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                            <span>Generate</span>
+                        )}
                     </button>
+
                 </div>
             </aside>
 

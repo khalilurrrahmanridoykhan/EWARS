@@ -15,14 +15,6 @@ import { keyframes } from "@emotion/react";
 import { ChevronDown } from "lucide-react";
 import populationData from "../../public/upazila_population.json";
 
-// Demo chart data
-const chartData = [
-    { month: "August", threshold: 10, predicted: 12, actual: 9 },
-    { month: "September", threshold: 3, predicted: 14, actual: 11 },
-    { month: "October", threshold: 15, predicted: 16, actual: 13 },
-    { month: "November", threshold: 17, predicted: 18, actual: 16 },
-    { month: "December", threshold: 20, predicted: 21, actual: 19 },
-];
 
 // Month helper
 const monthNames = [
@@ -266,6 +258,17 @@ export default function MalariaSpecies() {
                     .filter(r => r.status === "fulfilled")
                     .flatMap(r => r.value);
 
+                results.forEach(r => {
+                    if (r.status === "fulfilled" && Array.isArray(r.value)) {
+                        r.value.forEach(item => {
+                            if (item.error) {
+                                toast.error(`Prediction error (Upazila ${item.upazila_id}): ${item.error}`);
+                            }
+                        });
+                    }
+                });
+
+
                 // 🚩 Add this enrichment step RIGHT HERE:
                 const forecastResultsWithCases = fulfilled.map(pred => {
                     const popObj = populationData.find(
@@ -440,8 +443,10 @@ export default function MalariaSpecies() {
 
 
     console.log("chartSeriesData:", chartSeriesData);
-    console.log("monthsssss:", months);
+    console.log("speciesKeys:", speciesKeys);
+    console.log("speciesData:", speciesData);
     console.log("selelcted upazila", selectedUpazilas)
+
 
 
     return (
@@ -489,9 +494,18 @@ export default function MalariaSpecies() {
                             style={{ fontSize: "14px" }}
                         />
                     </div>
-                    <button onClick={handleGenerate} className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
-                        Generate
+                    <button
+                        onClick={handleGenerate}
+                        disabled={fetching}
+                        className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded flex items-center justify-center"
+                    >
+                        {fetching ? (
+                            <div className="w-5 h-5 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                            <span>Generate</span>
+                        )}
                     </button>
+
 
                     <div className="col-span-2 lg:col-span-1">
                         <div className="grid grid-cols-4 sm:grid-cols-4 lg:grid-cols-2 gap-4 justify-items-center items-center">
@@ -542,10 +556,11 @@ export default function MalariaSpecies() {
                             key={`species-${species}`}
                             title={`Actual ${species} Cases – ${month} ${year}`}
                             geojson={filteredGeoJson}
-                            actualData={speciesData[i]} // Only the relevant species counts!
+                            actualData={speciesData[i]}
                             actualMonth={`${year}-${String(monthNames.indexOf(month) + 1).padStart(2, '0')}-01`}
                             type="actual"
                             threshold={threshold}
+                            species={species}
                         />
                     ))}
                 </div>
@@ -710,6 +725,7 @@ function GeoJSONLayer({
     actualMonth,
     type,
     threshold = 100,
+    species
 }) {
     const map = useMap();
     const [zoom, setZoom] = useState(map.getZoom());
@@ -725,7 +741,7 @@ function GeoJSONLayer({
 
     function getActual(upaID) {
         if (!actualData || !actualMonth) return null;
-        const [year, monthNum] = actualMonth.split("-");
+        const [year, monthNum] = actualMonth.split('-');
         const monthName = monthNames[parseInt(monthNum, 10) - 1];
         return actualData.find(
             d =>
@@ -746,7 +762,7 @@ function GeoJSONLayer({
 
     function getPredictionAPI(upaID) {
         if (!forecastResults) return null;
-        console.log("Looking for:", upaID, "in", forecastResults);
+        // console.log("Looking for:", upaID, "in", forecastResults);
         return forecastResults.find(
             res => String(res.upazila_id) === String(upaID)
         );
@@ -783,7 +799,11 @@ function GeoJSONLayer({
                 cases = pred && pred.pred_cases !== undefined ? Number(pred.pred_cases) : 0;
             } else if (type === "actual") {
                 const actual = getActual(upaID);
-                cases = actual && actual.CASEE !== undefined ? Number(actual.CASEE) : 0;
+                if (actual) {
+                    if (species === 'PV') cases = Number(actual.PV ?? 0);
+                    else if (species === 'PF') cases = Number(actual.PF ?? 0);
+                    else if (species === 'MIXED') cases = Number(actual.MIXED ?? 0);
+                }
             }
             if (cases > threshold && feature.geometry) {
                 const centroid = getCentroid(feature.geometry);
@@ -791,7 +811,8 @@ function GeoJSONLayer({
             }
             return null;
         }).filter(Boolean);
-    }, [geojson, forecastResults, forecastMonth, actualData, actualMonth, type, threshold]);
+    }, [geojson, forecastResults, forecastMonth, actualData, actualMonth, type, threshold, species]);
+
 
     // Remove all polygon/label layers before new draw
     useEffect(() => {
@@ -814,8 +835,10 @@ function GeoJSONLayer({
                     }
                 } else if (type === "actual") {
                     const actual = getActual(upaID);
-                    if (actual && actual.CASEE !== undefined) {
-                        cases = Number(actual.CASEE) || 0;
+                    if (actual) {
+                        if (species === "PV") cases = Number(actual.PV ?? 0);
+                        else if (species === "PF") cases = Number(actual.PF ?? 0);
+                        else if (species === "MIXED") cases = Number(actual.MIXED ?? 0);
                     }
                 }
 
@@ -845,8 +868,11 @@ function GeoJSONLayer({
                         cases = Math.round(pred.pred_cases);
                 } else if (type === "actual") {
                     const actual = getActual(upaID);
-                    if (actual && actual.CASEE !== undefined)
-                        cases = Math.round(actual.CASEE);
+                    if (actual) {
+                        if (species === "PV") cases = Number(actual.PV ?? 0);
+                        else if (species === "PF") cases = Number(actual.PF ?? 0);
+                        else if (species === "MIXED") cases = Number(actual.MIXED ?? 0);
+                    }
                 }
 
                 // --- POPUP INFO ---
@@ -875,17 +901,21 @@ function GeoJSONLayer({
                     }
                 } else if (type === "actual") {
                     const actual = getActual(upaID);
-                    if (actual && actual.CASEE !== undefined) {
+                    if (type === "actual" && actual) {
+                        let caseLabel = species === 'PV' ? 'PV Cases' : species === 'PF' ? 'PF Cases' : 'Mixed Cases';
+                        let speciesValue = species === 'PV' ? actual.PV : species === 'PF' ? actual.PF : actual.MIXED;
                         html += `
-              <tr>
-                  <td style="padding: 2px 4px; font-weight: bold;">Month</td>
-                  <td style="padding: 2px 4px;">${actual.ReportMonth} ${actual.ReportYear}</td>
-              </tr>
-              <tr>
-                  <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
-                  <td style="padding: 2px 4px;">${actual.CASEE}</td>
-              </tr>`;
-                    } else {
+    <tr>
+      <td style="padding: 2px 4px; font-weight: bold;">Month</td>
+      <td style="padding: 2px 4px;">${actual.ReportMonth} ${actual.ReportYear}</td>
+    </tr>
+    <tr>
+      <td style="padding: 2px 4px; font-weight: bold;">${caseLabel}</td>
+      <td style="padding: 2px 4px;">${speciesValue}</td>
+    </tr>
+  `;
+                    }
+                    else {
                         html += `</table>
               <div style="margin-top: 2px; font-style: italic; color: #777;">
                 No actual data
@@ -1037,6 +1067,7 @@ function MapCard({
     actualMonth,
     type,
     threshold = 100,
+    species
 }) {
     // NEW: Collapsed state, default open
     const [collapsed, setCollapsed] = useState(false);
@@ -1114,6 +1145,7 @@ function MapCard({
                                 actualMonth={type === 'actual' ? actualMonth : undefined}
                                 type={type}
                                 threshold={threshold}
+                                species={species}
                             />
                         )}
 
