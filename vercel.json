@@ -1,6 +1,10 @@
 {
     "rewrites": [
         {
+            "source": "/models/(.*)",
+            "destination": "http://api2.commicplan.com/models/$1"
+        },
+        {
             "source": "/api/(.*)",
             "destination": "http://api1.commicplan.com/$1"
         },

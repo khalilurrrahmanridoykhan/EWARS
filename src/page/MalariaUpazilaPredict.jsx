@@ -197,7 +197,7 @@ export default function MalariaRiskTracker() {
         setFetching(true); // Start overlay
 
         try {
-            const results = await runBatchedRequests(fetchFuncs, 1, 200);
+            const results = await runBatchedRequests(fetchFuncs, 1, 300);
             setForecastResults(results.filter(Boolean));
         } finally {
             setFetching(false); // Always clear overlay on finish/error
@@ -206,7 +206,7 @@ export default function MalariaRiskTracker() {
 
 
     // Utility: runs async funcs in batches of N with delay between each batch
-    async function runBatchedRequests(fetchFuncs, batchSize = 1, delayMs = 200) {
+    async function runBatchedRequests(fetchFuncs, batchSize = 1, delayMs = 300) {
         const results = [];
 
         for (let i = 0; i < fetchFuncs.length; i += batchSize) {
