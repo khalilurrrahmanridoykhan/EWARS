@@ -36,6 +36,10 @@
   }
 }
 
+.leaflet-control-attribution {
+  display: none !important;
+}
+
 .leaflet-control-zoom-in,
 .leaflet-control-zoom-out {
   width: 20px !important;
