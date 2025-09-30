@@ -43,7 +43,7 @@ function ChwCds() {
 
     const [filteredSubmissions, setFilteredSubmissions] = useState([]);
     const [dateRange, setDateRange] = useState([null, null]); // [startDate, endDate]
-    const [collapsed, setCollapsed] = useState(false);
+    const [collapsed, setCollapsed] = useState(true);
 
     const [showFilter, setShowFilter] = useState(false);
     const [mapFilterState, setMapFilterState] = useState({});
@@ -76,6 +76,8 @@ function ChwCds() {
         [allData]
     );
 
+
+    console.log("all data :", h)
 
 
     // On data load, select everything by default
@@ -294,46 +296,48 @@ function ChwCds() {
         );
     }, [diseaseOptions]);
 
+    console.log("slected diease 😒😒😍", selectedDiseases)
+
     useEffect(() => {
         if (!h || !h.allRows) {
             setFilteredSubmissions([]);
             return;
         }
         const [start, end] = dateRange;
-        const filtered = h.allRows.filter(row =>
-            (!selectedDivisions.length || selectedDivisions.includes(row.division)) &&
-            (!selectedDistricts.length || selectedDistricts.includes(row.district)) &&
-            (!selectedUpazilas.length || selectedUpazilas.includes(row.upazila)) &&
-            (!selectedUnions.length || selectedUnions.includes(row.union)) &&
-            (!selectedWards.length || selectedWards.includes(row.ward)) &&
-            (!selectedAreas.length || selectedAreas.includes(row.area)) &&
-            (!selectedOrganizations.length ||
-                selectedOrganizations.some(
-                    o =>
-                        (row.organization || '').toLowerCase().trim() === o.toLowerCase().trim()
-                )
-            ) &&
-            (!selectedDiseases.length ||
-                (Array.isArray(row.disease)
-                    ? row.disease.some(d =>
-                        selectedDiseases.some(
-                            s =>
-                                (d || '').toLowerCase().trim() === s.toLowerCase().trim()
-                        )
-                    )
-                    : selectedDiseases.some(
-                        s =>
-                            (row.disease || '')
-                                .toLowerCase()
-                                .trim() === s.toLowerCase().trim()
-                    )
-                )
-            ) &&
-            (!start || (row.day && row.day >= start)) &&
-            (!end || (row.day && row.day <= end))
+        let filtered = h.allRows.filter(row =>
+            (selectedDivisions.length === 0 || selectedDivisions.includes(row.division)) &&
+            (selectedDistricts.length === 0 || selectedDistricts.includes(row.district)) &&
+            (selectedUpazilas.length === 0 || selectedUpazilas.includes(row.upazila)) &&
+            (selectedUnions.length === 0 || selectedUnions.includes(row.union)) &&
+            (selectedWards.length === 0 || selectedWards.includes(row.ward)) &&
+            (selectedAreas.length === 0 || selectedAreas.includes(row.area)) &&
+            (selectedOrganizations.length === 0 || selectedOrganizations.some(o =>
+                row.organization && o.trim().toLowerCase() === row.organization.trim().toLowerCase()
+            )) &&
+            (!start || row.day >= start) &&
+            (!end || row.day <= end)
         );
 
+        console.log("ssssssssssssssssss🙌🙌", filtered)
+
+        if (selectedDiseases.length > 0) {
+            filtered = filtered.filter(row => {
+                if (Array.isArray(row.disease)) {
+                    return row.disease.some(d =>
+                        selectedDiseases.some(s =>
+                            d && s && d.trim().toLowerCase() === s.trim().toLowerCase()
+                        )
+                    );
+                } else {
+                    return selectedDiseases.some(s =>
+                        row.disease && s && row.disease.trim().toLowerCase() === s.trim().toLowerCase()
+                    );
+                }
+            });
+        }
+
         setFilteredSubmissions(filtered);
+
     }, [
         h,
         selectedDivisions,
@@ -376,6 +380,13 @@ function ChwCds() {
     }, [minDay, maxDay]);
 
     function calculateMetrics(submissions) {
+
+        function formatLabel(label) {
+            return label
+                .replace(/_/g, " ")                // replace underscores with spaces
+                .replace(/\b\w/g, c => c.toUpperCase()); // capitalize each word
+        }
+
         // Submissions Over Time (Line Chart)
         const submissionsPerDay = {};
         submissions.forEach(row => {
@@ -410,7 +421,10 @@ function ChwCds() {
             else if (x.disease) diseaseCounts[x.disease] = (diseaseCounts[x.disease] || 0) + 1;
         });
         const suspectedDiseaseBar = Object.entries(diseaseCounts)
-            .map(([disease, count]) => ({ name: disease, value: count }));
+            .map(([disease, count]) => ({
+                name: formatLabel(disease),
+                value: count
+            }));
 
         // Referral Rate Pie
         let referredYes = 0, referredNo = 0, referredOther = 0;
@@ -530,7 +544,10 @@ function ChwCds() {
         submissions.forEach(x => {
             if (x.typelatrineuse) latrineTypes[x.typelatrineuse] = (latrineTypes[x.typelatrineuse] || 0) + 1;
         });
-        const latrineBar = Object.entries(latrineTypes).map(([name, value]) => ({ name, value }));
+        const latrineBar = Object.entries(latrineTypes).map(([name, value]) => ({
+            name: formatLabel(name),
+            value
+        }));
 
         // Disaster Type Bar
         const disasterTypes = {};
@@ -542,7 +559,10 @@ function ChwCds() {
                 if (type) disasterTypes[type] = (disasterTypes[type] || 0) + 1;
             });
         });
-        const disasterTypeBar = Object.entries(disasterTypes).map(([name, value]) => ({ name, value }));
+        const disasterTypeBar = Object.entries(disasterTypes).map(([name, value]) => ({
+            name: formatLabel(name),
+            value
+        }));
 
         // NEW: Referral to Govt Facility (horizontal bar)
         const govtFacilityTypes = {};
@@ -602,7 +622,6 @@ function ChwCds() {
     }
 
 
-
     const metrics = useMemo(() => calculateMetrics(filteredSubmissions), [filteredSubmissions]);
     console.log("metrics", metrics);
 
@@ -621,6 +640,15 @@ function ChwCds() {
     const mapPoints = filteredSubmissions
         .filter(row => isValidLatLng(row.latitude, row.longitude));
 
+    useEffect(() => {
+        setSelectedDiseases(prev => {
+            // if there was no previous selection, select all options
+            if (!prev.length && diseaseOptions.length) return diseaseOptions;
+            // otherwise, add any new options that appeared
+            const addedOptions = diseaseOptions.filter(option => !prev.includes(option));
+            return [...prev, ...addedOptions];
+        });
+    }, [diseaseOptions]);
 
 
     const filterFields = [
@@ -680,10 +708,10 @@ function ChwCds() {
     }
     if (error) return <div>{error}</div>;
 
-
+    console.log("Filtered data count:", filteredSubmissions.length);
 
     return (
-        <div>
+        <div className='md:mx-2 mb-8'>
             <div className="bg-blue-50 p-4 rounded-xl shadow-md mb-6">
                 <button
                     type="button"
@@ -849,6 +877,16 @@ function ChwCds() {
                     stat={`${metrics.percentSuspected}%`}
                 />
 
+                <HorizontalBarCard
+                    title="Suspected Disease Count"
+                    data={metrics.suspectedDiseaseBar.filter(d => d.name !== "Not Suspected")}
+                    colors={["#FF6361", "#3296FA", "#60B76D"]}
+                    stat={metrics.suspectedDiseaseBar
+                        .filter(d => d.name !== "Not Suspected")
+                        .reduce((sum, d) => sum + d.value, 0)}
+                />
+
+
                 <PieCard
                     title="Referral Rate"
                     data={metrics.referralRatePie}
@@ -856,12 +894,7 @@ function ChwCds() {
                     stat={`${metrics.referralRate}%`}
                 />
 
-                <MultiPieCard
-                    title="Gender Distribution"
-                    data={metrics.genderPie}
-                    colors={["#3296FA", "#FF6361", "#C50080"]}
-                    stat={metrics.genderPie.reduce((sum, d) => sum + d.value, 0)}
-                />
+
 
 
                 <div className="row-span-2 md:col-span-2 md:row-span-2 lg:col-span-2 lg:row-span-2">
@@ -938,7 +971,12 @@ function ChwCds() {
                     </DashboardCard>
                 </div>
 
-
+                <MultiPieCard
+                    title="Gender Distribution"
+                    data={metrics.genderPie}
+                    colors={["#3296FA", "#FF6361", "#C50080"]}
+                    stat={metrics.genderPie.reduce((sum, d) => sum + d.value, 0)}
+                />
 
                 <MultiPieCard
                     title="Facility Type"
@@ -954,13 +992,6 @@ function ChwCds() {
                     stat={`${metrics.bednetPercent}%`}
                 />
 
-                <HorizontalBarCard
-                    title="Suspected Disease Count"
-                    data={metrics.suspectedDiseaseBar}
-                    colors={["#FF6361", "#3296FA", "#60B76D"]}
-                    stat={metrics.suspectedDiseaseBar.reduce((sum, d) => sum + d.value, 0)}
-                />
-
 
                 <PieCard
                     title="Handwashing Facilities"
@@ -970,10 +1001,10 @@ function ChwCds() {
                 />
                 <div className="row-span-1 md:col-span-2 md:row-span-1 lg:col-span-2 lg:row-span-1">
                     <HorizontalBarCard
-                        title="Disaster Types"
-                        data={metrics.disasterTypeBar}
-                        colors={["#FFB300", "#FF6361", "#3296FA", "#60B76D", "#9B59B6", "#E67E22"]}
-                        stat={metrics.disasterTypeBar.reduce((sum, d) => sum + d.value, 0)}
+                        title="Latrine Type"
+                        data={metrics.latrineBar}
+                        colors={["#3296FA", "#60B76D", "#FFB300", "#FF6361", "#9B59B6"]}
+                        stat={metrics.latrineBar.reduce((sum, d) => sum + d.value, 0)}
                     />
                 </div>
 
@@ -994,12 +1025,14 @@ function ChwCds() {
                     colors={["#FF6361", "#005fbe", "#d9534f"]}
                     stat={`${metrics.mosquitoLarvaePercent}%`}
                 />
+
+
                 <div className="row-span-1 md:col-span-2 md:row-span-1 lg:col-span-2 lg:row-span-1">
                     <HorizontalBarCard
-                        title="Latrine Type"
-                        data={metrics.latrineBar}
-                        colors={["#3296FA", "#60B76D", "#FFB300", "#FF6361", "#9B59B6"]}
-                        stat={metrics.latrineBar.reduce((sum, d) => sum + d.value, 0)}
+                        title="Disaster Types"
+                        data={metrics.disasterTypeBar}
+                        colors={["#FFB300", "#FF6361", "#3296FA", "#60B76D", "#9B59B6", "#E67E22"]}
+                        stat={metrics.disasterTypeBar.reduce((sum, d) => sum + d.value, 0)}
                     />
                 </div>
 
@@ -1145,6 +1178,7 @@ function flattenSubmission(x) {
             longitude = Number(locParts[1]);
         }
 
+
         return {
             division: suspectedPatientInfo.division || '',
             district: suspectedPatientInfo.district || '',
@@ -1217,6 +1251,7 @@ function extractHierarchy(submissions) {
         const row = flattenSubmission(x);
         if (!row) continue;
 
+
         // Populate hierarchies
         const { division, district, upazila, union, ward, area, organization, disease } = row;
 
@@ -1258,9 +1293,17 @@ function extractHierarchy(submissions) {
         // Diseases (may be array)
         if (disease && Array.isArray(disease)) diseases.push(...disease);
         else if (disease) diseases.push(disease);
-
+        if (
+            row.suspectedinthedisease === "no" ||
+            row.suspected_in_the_disease === "no"
+        ) {
+            row.disease = "Not Suspected";
+        }
         allRows.push(row);
+
     }
+
+    console.log("All data count: ✔✔✔✔✔✔✔✔✔✔✔✔✔", allRows.length);
 
     return {
         divisionOptions: getUnique(divisions),

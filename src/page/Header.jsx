@@ -4,13 +4,11 @@ import { FaUserCircle } from "react-icons/fa";
 import { FaCheck } from "react-icons/fa6";
 import { Link, useLocation } from "react-router-dom";
 
-// Disease menu logic
 const diseases = [
     { name: "Malaria", key: "malaria" },
     { name: "Dengue", key: "dengue" },
     { name: "AWD", key: "awd" }
 ];
-// Per-disease dropdown options
 const riskOptions = {
     malaria: [
         { name: "Upazila", href: "/risk-map/upazila" },
@@ -31,28 +29,24 @@ const alertOptions = {
 };
 
 const navItemsBase = [
-    { name: "Data", href: "/data" },
+    // Removed Data from here
     {
-        name: "Diseases", // This is now the disease picker (UI-only, not nav)
+        name: "Diseases",
         children: diseases.map(d => ({ name: d.name, key: d.key }))
     },
     { name: "Monitor", children: [{ name: "CDS", href: "/chw_cds" }] }
 ];
-
 
 export default function Header() {
     const [menuOpen, setMenuOpen] = useState(false);
     const [dropdownOpen, setDropdownOpen] = useState(null);
     const [selectedDisease, setSelectedDisease] = useState("malaria");
     const location = useLocation();
-
     const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
     const avatarMenuRef = useRef();
 
-
     useEffect(() => {
         const handler = (e) => {
-            // close menu if clicking outside
             if (avatarMenuOpen && avatarMenuRef.current && !avatarMenuRef.current.contains(e.target)) {
                 setAvatarMenuOpen(false);
             }
@@ -61,12 +55,9 @@ export default function Header() {
         return () => window.removeEventListener("mousedown", handler);
     }, [avatarMenuOpen]);
 
-
     const navItems = [
-        ...navItemsBase.slice(0, 1), // Data
         {
-            ...navItemsBase[1],
-            // Render disease menu with select logic
+            ...navItemsBase[0],
             render: () => (
                 <div className="relative z-[9999]">
                     <button
@@ -108,11 +99,9 @@ export default function Header() {
             name: "Alert",
             children: alertOptions[selectedDisease]
         },
-        navItemsBase[2] // Monitor
+        navItemsBase[1] // Monitor
     ];
 
-
-    // Find active parent & child based on current URL
     const currentPath = location.pathname;
     let activeParent = null;
     let activeChild = null;
@@ -131,7 +120,6 @@ export default function Header() {
         }
     });
 
-
     return (
         <header className="bg-[#004bad] text-white shadow-md">
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
@@ -141,7 +129,6 @@ export default function Header() {
                 <nav className="hidden md:flex space-x-6 items-center text-lg">
                     {navItems.map((item) =>
                         item.render ? (
-                            // Special Diseases go here (render: function returns element)
                             <div key={item.name}>{item.render()}</div>
                         ) : item.children ? (
                             <div key={item.name} className="relative">
@@ -163,7 +150,7 @@ export default function Header() {
                                                 key={child.name}
                                                 to={child.href}
                                                 onClick={() => setDropdownOpen(null)}
-                                                className="flex cursour-pointer items-center justify-between w-full px-4 py-2 text-base hover:bg-gray-100"
+                                                className="flex cursour-pointer items-center justify-between w-full px-4 py-2 text-base hover:bg-gray-100 hover:rounded-lg"
                                             >
                                                 {child.name}
                                                 {activeChild === child.name && (
@@ -174,21 +161,11 @@ export default function Header() {
                                     </div>
                                 )}
                             </div>
-                        ) : (
-                            <Link
-                                key={item.name}
-                                to={item.href}
-                                className={`px-4 py-2 rounded-md cursor-pointer transition ${activeParent === item.name
-                                    ? "bg-white text-black"
-                                    : "hover:bg-blue-600"
-                                    }`}
-                            >
-                                {item.name}
-                            </Link>
-                        )
+                        ) : null // No Data here
                     )}
                 </nav>
 
+                {/* Desktop Profile Menu */}
                 <div className="hidden md:block relative" ref={avatarMenuRef}>
                     <FaUserCircle
                         className="text-3xl cursor-pointer hover:text-gray-200"
@@ -196,6 +173,14 @@ export default function Header() {
                     />
                     {avatarMenuOpen && (
                         <div className="absolute right-0 mt-3 w-48 bg-white text-black rounded shadow z-50 py-2">
+                            {/* Added Data link to profile menu */}
+                            <Link
+                                to="/data"
+                                className="block w-full px-4 py-2 text-left hover:bg-blue-50 text-sm"
+                                onClick={() => setAvatarMenuOpen(false)}
+                            >
+                                Data
+                            </Link>
                             <Link
                                 to="/model"
                                 className="block w-full px-4 py-2 text-left hover:bg-blue-50 text-sm"
@@ -219,7 +204,6 @@ export default function Header() {
             {/* Mobile Menu */}
             {menuOpen && (
                 <div className="md:hidden bg-blue-600 text-lg">
-                    {/* Disease Picker for Mobile */}
                     <div className="border-t border-blue-500 flex px-4 py-3 gap-3">
                         <span className="font-semibold text-white">Disease:</span>
                         {diseases.map(d => (
@@ -235,58 +219,65 @@ export default function Header() {
                             </button>
                         ))}
                     </div>
+
                     {navItems.map((item) =>
-                        item.render ? (
-                            // skip diseases picker - already rendered above in mobile
-                            null
-                        ) : item.children ? (
-                            <div key={item.name} className="border-t border-blue-500">
-                                <button
-                                    onClick={() =>
-                                        setDropdownOpen(dropdownOpen === item.name ? null : item.name)
-                                    }
-                                    className={`block w-full text-left px-4 py-3 transition ${activeParent === item.name
-                                        ? "bg-green-500 text-white"
-                                        : "hover:bg-blue-500"
-                                        }`}
-                                >
-                                    {item.name}
-                                </button>
-                                {dropdownOpen === item.name && (
-                                    <div className="bg-blue-700">
-                                        {item.children.map((child) => (
-                                            <Link
-                                                key={child.name}
-                                                to={child.href}
-                                                onClick={() => {
-                                                    setDropdownOpen(null);
-                                                    setMenuOpen(false);
-                                                }}
-                                                className="flex items-center justify-between w-full px-6 py-2 hover:bg-blue-500"
-                                            >
-                                                {child.name}
-                                                {activeChild === child.name && (
-                                                    <FaCheck className="text-green-300" />
-                                                )}
-                                            </Link>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        ) : (
-                            <Link
-                                key={item.name}
-                                to={item.href}
-                                onClick={() => setMenuOpen(false)}
-                                className={`block w-full text-left px-4 py-3 transition ${activeParent === item.name
-                                    ? "bg-green-500 text-white"
-                                    : "hover:bg-blue-500"
-                                    }`}
-                            >
-                                {item.name}
-                            </Link>
-                        )
+                        item.render ? null :
+                            item.children ? (
+                                <div key={item.name} className="border-t border-blue-500">
+                                    <button
+                                        onClick={() =>
+                                            setDropdownOpen(dropdownOpen === item.name ? null : item.name)
+                                        }
+                                        className={`block w-full text-left px-4 py-3 transition ${activeParent === item.name
+                                            ? "bg-green-500 text-white"
+                                            : "hover:bg-blue-500"
+                                            }`}
+                                    >
+                                        {item.name}
+                                    </button>
+                                    {dropdownOpen === item.name && (
+                                        <div className="bg-blue-700">
+                                            {item.children.map((child) => (
+                                                <Link
+                                                    key={child.name}
+                                                    to={child.href}
+                                                    onClick={() => {
+                                                        setDropdownOpen(null);
+                                                        setMenuOpen(false);
+                                                    }}
+                                                    className="flex items-center justify-between w-full px-6 py-2 hover:bg-blue-500"
+                                                >
+                                                    {child.name}
+                                                    {activeChild === child.name && (
+                                                        <FaCheck className="text-green-300" />
+                                                    )}
+                                                </Link>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            ) : null // No Data here
                     )}
+                    {/* Mobile profile menu (shows at bottom of menu) */}
+                    <div className="border-t border-blue-500 py-4 px-4 flex flex-col gap-2">
+                        <div className="border-b border-black/30">
+                            <Link
+                                to="/data"
+                                className="block w-full px-2 py-2 text-md rounded-lg text-left  text-white mb-2 font-semibold "
+                                onClick={() => setMenuOpen(false)}
+                            >
+                                Data
+                            </Link>
+                        </div>
+
+                        <Link
+                            to="/model"
+                            className="block w-full px-2 py-2 rounded-lg text-left  text-white"
+                            onClick={() => setMenuOpen(false)}
+                        >
+                            Mechanism of Model
+                        </Link>
+                    </div>
                 </div>
             )}
         </header>

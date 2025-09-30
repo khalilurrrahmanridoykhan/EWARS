@@ -354,6 +354,14 @@ function Alert() {
                         className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
                         Send Alert
                     </button>
+                    <button
+                        onClick={() => {
+                            toast.success("download report")
+                        }}
+
+                        className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
+                        Download report
+                    </button>
                 </div>
             </aside>
 
