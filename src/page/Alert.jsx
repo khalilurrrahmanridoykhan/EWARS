@@ -61,10 +61,10 @@ function Alert() {
     const [forecastResults, setForecastResults] = useState([]); // Will hold the API re
 
     const baseDate = new Date();
-    const months = useMemo(
-        () => getMonthVariants(selectedMonth ? new Date(selectedMonth) : new Date()),
-        [selectedMonth]
-    );
+    // const months = useMemo(
+    //     () => getMonthVariants(selectedMonth ? new Date(selectedMonth) : new Date()),
+    //     [selectedMonth]
+    // );
 
     const [threshold, setThreshold] = useState(100);
 
@@ -80,6 +80,7 @@ function Alert() {
     const [newEmailInput, setNewEmailInput] = useState('');
 
     const [sendingMail, setSendingMail] = useState(false);
+    const [fetching, setFetching] = useState(false);
 
 
 
@@ -153,29 +154,80 @@ function Alert() {
         return [prev, curr, next].map(d => d.toISOString().slice(0, 10));
     };
 
+    function get12Months(selectedDate) {
+        let arr = [];
+        for (let i = 0; i < 12; i++) {
+            const d = new Date(selectedDate.getFullYear(), selectedDate.getMonth() - 11 + i, 1);
+            arr.push({
+                label: monthNames[d.getMonth()] + " " + d.getFullYear(),
+                code: d.toISOString().slice(0, 10),
+            });
+        }
+        return arr;
+    }
+
+    const months = useMemo(() =>
+        get12Months(selectedMonth ? new Date(selectedMonth) : new Date()),
+        [selectedMonth]);
+
+
     const handleGenerate = async () => {
         if (!selectedUpazilas.length || !selectedMonth) {
             toast.error("Please select at least one Upazila and a month.");
             return;
         }
-        const months = getAdjacentMonths(selectedMonth);
-        const results = await Promise.all(
-            selectedUpazilas.flatMap(upazila =>
-                months.map(month =>
-                    axios.post("/api/predict_simple", { upa_name: upazila, forecast_month: month })
-                        .then(res => {
-                            toast.success(`Data loaded for ${upazila} (${month})`);
-                            return { ...res.data, upa_name: upazila, forecast_month: month };
-                        })
-                        .catch(() => {
-                            toast.error(`Failed to fetch data for ${upazila} - ${month}`);
-                            return null;
-                        })
-                )
+
+        const months = get12Months(selectedMonth ? new Date(selectedMonth) : new Date());
+
+        // Setup fetch function array for batching
+        const fetchFuncs = selectedUpazilas.flatMap(upazila =>
+            months.map(month => () =>
+                axios.post("/api/predict_simple", { upa_name: upazila, forecast_month: month.code })
+                    .then(res => {
+                        toast.success(`Data loaded for ${upazila} (${month.label})`);
+                        return { ...res.data, upa_name: upazila, forecast_month: month.code };
+                    })
+                    .catch(() => {
+                        toast.error(`Failed to fetch data for ${upazila} - ${month.label}`);
+                        return null;
+                    })
             )
         );
-        setForecastResults(results.filter(Boolean));
+
+        setFetching(true);
+
+        try {
+            // batchSize: 1, delay: 400ms (backend-friendly rate limit)
+            const results = await runBatchedRequests(fetchFuncs, 1, 300);
+            setForecastResults(results.filter(Boolean));
+        } finally {
+            setFetching(false);
+        }
     };
+
+    // Batching utility: runs async fetch functions in batches
+    async function runBatchedRequests(fetchFuncs, batchSize = 1, delayMs = 300) {
+        const results = [];
+        for (let i = 0; i < fetchFuncs.length; i += batchSize) {
+            const batch = fetchFuncs.slice(i, i + batchSize);
+            const batchResults = await Promise.allSettled(batch.map(fn => fn()));
+
+            batchResults.forEach(result => {
+                if (result.status === "fulfilled") {
+                    results.push(result.value);
+                } else {
+                    console.error("Batch request failed", result.reason);
+                }
+            });
+
+            // Optional: update UI progress here
+            // updateProgress(results.length, fetchFuncs.length);
+
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+        return results;
+    }
+
 
 
 
@@ -368,6 +420,20 @@ function Alert() {
             {/* Main Content */}
             <main className="flex-1 px-4">
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+
+
+                    {months.slice(-1).map((m, i) => (
+                        <MapCard
+                            key={`pred-${i}`}
+                            title={`Predictive Case – ${getPreviousMonthLabel(m.label)}`}
+                            geojson={filteredGeoJson}
+                            forecastResults={forecastResults}
+                            forecastMonth={m.code}
+                            type="forecast"
+                            threshold={threshold}
+                        />
+                    ))}
+
                     <div className=" bg-white border rounded shadow p-4">
                         <ResponsiveContainer width="100%" height={320}>
                             <LineChart data={chartSeriesData}>
@@ -423,18 +489,6 @@ function Alert() {
 
                         </ResponsiveContainer>
                     </div>
-
-                    {months.slice(-1).map((m, i) => (
-                        <MapCard
-                            key={`pred-${i}`}
-                            title={`Predictive Case – ${getPreviousMonthLabel(m.label)}`}
-                            geojson={filteredGeoJson}
-                            forecastResults={forecastResults}
-                            forecastMonth={m.code}
-                            type="forecast"
-                            threshold={threshold}
-                        />
-                    ))}
 
                 </div>
 

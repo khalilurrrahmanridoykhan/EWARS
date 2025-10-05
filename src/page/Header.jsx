@@ -126,7 +126,7 @@ export default function Header() {
                 <div className="font-bold text-xl tracking-wide">CSD EWARS</div>
 
                 {/* Desktop Nav */}
-                <nav className="hidden md:flex space-x-6 items-center text-lg">
+                <nav className="hidden md:flex space-x-6 items-center text-md">
                     {navItems.map((item) =>
                         item.render ? (
                             <div key={item.name}>{item.render()}</div>

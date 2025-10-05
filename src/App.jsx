@@ -18,7 +18,7 @@ function App() {
   return (
     <Router>
       <Routes>
-        <Route path="/" element={<Navigate to="/data" replace />} />
+        <Route path="/" element={<Navigate to="/malaria/predict/species" replace />} />
 
 
         {/* Admin Routes (open for everyone for now) */}
