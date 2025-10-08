@@ -57,6 +57,11 @@ export default function MalariaSpecies() {
     const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
     const [selectedMonth, setSelectedMonth] = useState(prevMonth);
 
+    // const now = new Date();
+    // const currentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    // const [selectedMonth, setSelectedMonth] = useState(currentMonth);
+
+
     // only one month
     const get12Months = (selectedDate) => {
         let arr = [];
@@ -204,6 +209,29 @@ export default function MalariaSpecies() {
 
 
     console.log("geoJson:", geoJson);
+
+    //test
+
+    const selectedUpaObjs = selectedUpazilas.map(name => {
+        // Use UPA_NAME from properties for matching
+        const feature = geoJson.features.find(
+            f => (
+                f.properties.UPA_NAME &&
+                f.properties.UPA_NAME.trim().toLowerCase() === name.trim().toLowerCase()
+            )
+        );
+        return feature
+            ? { name, id: String(feature.properties.UpazilaID) }
+            : null;
+    }).filter(Boolean);
+
+    console.log("selectedUpaObjs:", selectedUpaObjs);
+
+    const selectedUpazilaIds = new Set(selectedUpaObjs.map(u => u.id)); // Set for O(1) lookups
+
+    console.log("selectedUpaObjs", selectedUpaObjs)
+    console.log("selectedUpazilas", selectedUpazilas)
+    console.log("selectedUpazilaIds", selectedUpazilaIds)
 
 
     const handleGenerate = async () => {
@@ -1136,7 +1164,7 @@ function MapCard({
                         </div>
 
 
-                        <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
+                        <TileLayer url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png" />
                         {geojson && (
                             <GeoJSONLayer
                                 geojson={geojson}

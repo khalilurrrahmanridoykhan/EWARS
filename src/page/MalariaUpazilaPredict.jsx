@@ -985,7 +985,7 @@ function MapCard({
                         </div>
 
 
-                        <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
+                        <TileLayer url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png" />
                         {geojson && (
                             <GeoJSONLayer
                                 geojson={geojson}

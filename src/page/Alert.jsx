@@ -13,15 +13,11 @@ import { toast } from "sonner";
 import axios from "axios";
 import { keyframes } from "@emotion/react";
 import { ChevronDown } from "lucide-react";
+import html2canvas from "html2canvas";
+import jsPDF from "jspdf";
 
-// Demo chart data
-const chartData = [
-    { month: "August", threshold: 10, predicted: 12 },
-    { month: "September", threshold: 3, predicted: 14 },
-    { month: "October", threshold: 15, predicted: 16 },
-    { month: "November", threshold: 17, predicted: 18 },
-    { month: "December", threshold: 20, predicted: 21 },
-];
+import populationData from "../../public/upazila_population.json";
+
 
 // Month helper
 const monthNames = [
@@ -56,7 +52,6 @@ function Alert() {
     const [startMonth, setStartMonth] = useState("");
     const [endMonth, setEndMonth] = useState("");
 
-    const [selectedMonth, setSelectedMonth] = useState("");     // e.g. "2025-01-01"
     const [selectedUpazila, setSelectedUpazila] = useState(""); // e.g. "Teknaf"
     const [forecastResults, setForecastResults] = useState([]); // Will hold the API re
 
@@ -81,12 +76,11 @@ function Alert() {
 
     const [sendingMail, setSendingMail] = useState(false);
     const [fetching, setFetching] = useState(false);
+    const [ReportFetch, setReportFetching] = useState(false)
 
-
-
-
-
-    console.log("actualData:", actualData);
+    const now = new Date();
+    const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const [selectedMonth, setSelectedMonth] = useState(prevMonth);
 
 
 
@@ -102,6 +96,7 @@ function Alert() {
                 setSelectedUpazilas([...new Set(Object.values(h.districts).flatMap(dists => dists.flatMap(dist => h.upazilas[dist] || [])))]);
             });
     }, []);
+
 
 
     // useEffect(() => {
@@ -142,7 +137,8 @@ function Alert() {
     //             toast?.error("Failed to load LMIS malaria data");
     //         });
     // }, [geoJson]);
-
+    console.log("selectedUpazilas", selectedUpazilas)
+    console.log("geojson", geoJson)
 
 
     const getAdjacentMonths = (selectedDate) => {
@@ -170,36 +166,100 @@ function Alert() {
         get12Months(selectedMonth ? new Date(selectedMonth) : new Date()),
         [selectedMonth]);
 
-
     const handleGenerate = async () => {
         if (!selectedUpazilas.length || !selectedMonth) {
             toast.error("Please select at least one Upazila and a month.");
             return;
         }
-
-        const months = get12Months(selectedMonth ? new Date(selectedMonth) : new Date());
-
-        // Setup fetch function array for batching
-        const fetchFuncs = selectedUpazilas.flatMap(upazila =>
-            months.map(month => () =>
-                axios.post("/api/predict_simple", { upa_name: upazila, forecast_month: month.code })
-                    .then(res => {
-                        toast.success(`Data loaded for ${upazila} (${month.label})`);
-                        return { ...res.data, upa_name: upazila, forecast_month: month.code };
-                    })
-                    .catch(() => {
-                        toast.error(`Failed to fetch data for ${upazila} - ${month.label}`);
-                        return null;
-                    })
-            )
-        );
-
         setFetching(true);
-
         try {
-            // batchSize: 1, delay: 400ms (backend-friendly rate limit)
-            const results = await runBatchedRequests(fetchFuncs, 1, 300);
-            setForecastResults(results.filter(Boolean));
+            // Lookup upazila IDs for selected upazilas from geoJson features
+            const selectedUpaObjs = selectedUpazilas.map(name => {
+                // Use UPA_NAME from properties for matching
+                const feature = geoJson.features.find(
+                    f => (
+                        f.properties.UPA_NAME &&
+                        f.properties.UPA_NAME.trim().toLowerCase() === name.trim().toLowerCase()
+                    )
+                );
+                return feature
+                    ? { name, id: String(feature.properties.UpazilaID) }
+                    : null;
+            }).filter(Boolean);
+
+
+
+            const selectedUpazilaIds = new Set(selectedUpaObjs.map(u => u.id)); // Set for O(1) lookups
+
+            console.log("GeoJSON features count:", geoJson.features.length);
+            console.log("GeoJSON example keys:", Object.keys(geoJson.features[0].properties));
+            console.log("selectedUpazilas:🙌🙌🙌🙌🙌", selectedUpazilas);
+            console.log("selectedUpaObjs:😍😍😍😍😍", selectedUpaObjs);
+
+
+
+            const year = selectedMonth.getFullYear();
+            const month = selectedMonth.getMonth() + 1;
+            console.log("------------------endpoint entry-------------");
+            const endpoints = [
+                { type: "PV", url: "/models/target_pv/predict_all" },
+                { type: "PF", url: "/models/target_pf/predict_all" },
+                { type: "MIXED", url: "/models/target_mixed/predict_all" }
+            ];
+            console.log("------------------endpoint end-------------");
+            try {
+                const results = await Promise.allSettled(
+                    endpoints.map(e =>
+                        axios.post(e.url, { year, month }).then(res =>
+                            res.data
+                                .filter(d => selectedUpazilaIds.has(String(d.upazila_id)))
+                                .map(d => ({ ...d, type: e.type }))
+                        )
+                    )
+                );
+                console.log("------------------result end-------------", results);
+                // Collect successful results and flatten
+                const fulfilled = results
+                    .filter(r => r.status === "fulfilled")
+                    .flatMap(r => r.value);
+                console.log("------------------fulfiled end-------------", fulfilled);
+                results.forEach(r => {
+                    if (r.status === "fulfilled" && Array.isArray(r.value)) {
+                        r.value.forEach(item => {
+                            if (item.error) {
+                                toast.error(`Prediction error (Upazila ${item.upazila_id}): ${item.error}`);
+                            }
+                        });
+                    }
+                });
+                console.log("------------------result foreach end-------------");
+                console.log("------------------forecastResultsWithCases starttttttttt -------------");
+
+                const forecastResultsWithCases = fulfilled.map(pred => {
+                    const popObj = populationData.find(
+                        p => String(p.UpazilaID) === String(pred.upazila_id)
+                    );
+                    const population = popObj && popObj.Population && popObj.Population[year]
+                        ? popObj.Population[year]
+                        : 0;
+                    return {
+                        ...pred,
+                        pred_cases: Math.round(population * Number(pred.predicted_rate)),
+                        population,
+                        year
+                    };
+                });
+                console.log("------------------forecastResultsWithCases enddd 🏆🏆🏆🏆 -------------", forecastResultsWithCases);
+                setForecastResults(forecastResultsWithCases);
+                toast.success("Predictions generated successfully!");
+            } catch (error) {
+                console.log(error)
+                toast.error("Failed to generate predictions.");
+            } finally {
+                setFetching(false);
+            }
+        } catch (error) {
+            toast.error("Unexpected error while generating predictions.");
         } finally {
             setFetching(false);
         }
@@ -346,6 +406,83 @@ function Alert() {
         });
     }, [months, upazilas, forecastResults, threshold]);
 
+    console.log("forecastResults", forecastResults)
+    console.log("filtergeojson", filteredGeoJson)
+    console.log("selelcted month", selectedMonth)
+
+
+    // async function handleGenerateReport() {
+    //     try {
+    //         const payload = {
+    //             month: selectedMonth,
+    //             predictions: forecastResults,     // same structure as before
+    //             regionGeojson: filteredGeoJson,   // selected polygons
+    //         };
+
+    //         const response = await fetch("http://localhost:5000/generate-report-inline", {
+    //             method: "POST",
+    //             headers: { "Content-Type": "application/json" },
+    //             body: JSON.stringify(payload),
+    //         });
+
+    //         if (!response.ok) throw new Error("Failed to generate PDF");
+
+    //         // Get the PDF blob and trigger download
+    //         const blob = await response.blob();
+    //         const url = URL.createObjectURL(blob);
+    //         const link = document.createElement("a");
+    //         link.href = url;
+    //         link.download = `Malaria_Early_Warning_Report_${format(selectedMonth, "MMMM_yyyy")}.pdf`;
+    //         document.body.appendChild(link);
+    //         link.click();
+    //         link.remove();
+    //         URL.revokeObjectURL(url);
+
+    //         toast.success("Report downloaded successfully!");
+    //     } catch (err) {
+    //         console.error("Report generation failed:", err);
+    //         toast.error("Failed to generate report");
+    //     }
+    // }
+
+    async function handleGenerateReport() {
+        setReportFetching(true)
+        try {
+            const payload = {
+                month: selectedMonth,
+                predictions: forecastResults, // same structure as before
+                regionGeojson: filteredGeoJson, // selected polygons
+            };
+
+            const response = await fetch("https://ewars-mails.onrender.com/generate-report-inline", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+            });
+
+            if (!response.ok) throw new Error("Failed to generate PDF");
+
+            const blob = await response.blob();
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            link.href = url;
+            link.download = `Malaria_Early_Warning_Report_${format(selectedMonth, "MMMM_yyyy")}.pdf`;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+
+            toast.success("Report downloaded successfully!");
+
+            toast.success("Report opened successfully!");
+        } catch (err) {
+            console.error("Report generation failed:", err);
+            toast.error("Failed to generate report");
+        } finally { setReportFetching(false) }
+    }
+
+
+
     return (
         <div className="flex flex-col lg:flex-row">
 
@@ -393,8 +530,16 @@ function Alert() {
                             style={{ fontSize: "14px" }}
                         />
                     </div>
-                    <button onClick={handleGenerate} className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
-                        Generate
+                    <button
+                        onClick={handleGenerate}
+                        disabled={fetching}
+                        className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded flex items-center justify-center"
+                    >
+                        {fetching ? (
+                            <div className="w-5 h-5 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                            <span>Generate</span>
+                        )}
                     </button>
                     <button
                         onClick={() => {
@@ -403,96 +548,113 @@ function Alert() {
                             setAlertModal(true);
                         }}
 
-                        className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
-                        Send Alert
-                    </button>
-                    <button
-                        onClick={() => {
-                            toast.success("download report")
-                        }}
 
                         className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded">
-                        Download report
+                        Send alert
+                    </button>
+                    <button
+                        disabled={ReportFetch}
+                        onClick={async () => {
+                            try {
+
+                                await handleGenerateReport(); // Await PDF generation, which auto-downloads
+
+                                toast.success("Download successful!");
+                            } catch (err) {
+
+                                toast.error("Download failed. Please try again.");
+                                console.error("PDF download failed:", err);
+                            }
+                        }}
+
+
+                        className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded flex items-center justify-center">
+                        {ReportFetch ? (
+                            <div className="w-5 h-5 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                            <span>Download report</span>
+                        )}
                     </button>
                 </div>
             </aside>
 
             {/* Main Content */}
-            <main className="flex-1 px-4">
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-
-
-                    {months.slice(-1).map((m, i) => (
+            <div main className="flex-1 px-4 overflow-y-auto" >
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+                    {["PV", "PF", "MIXED"].map(type => (
                         <MapCard
-                            key={`pred-${i}`}
-                            title={`Predictive Case – ${getPreviousMonthLabel(m.label)}`}
+                            key={type}
+                            title={`Predicted ${type} case – ${format(selectedMonth, "MMMM yyyy")}`}
                             geojson={filteredGeoJson}
-                            forecastResults={forecastResults}
-                            forecastMonth={m.code}
+                            forecastResults={forecastResults.filter(res => res.type === type)}  // ← fix here!
                             type="forecast"
+                            forecastMonth={format(selectedMonth, "yyyy-MM")}
                             threshold={threshold}
                         />
                     ))}
-
-                    <div className=" bg-white border rounded shadow p-4">
-                        <ResponsiveContainer width="100%" height={320}>
-                            <LineChart data={chartSeriesData}>
-                                <CartesianGrid strokeDasharray="3 3" />
-                                <XAxis dataKey="month" />
-                                <YAxis />
-                                <Tooltip />
-                                <Legend />
-                                <Line type="monotone" dataKey="threshold" stroke="#ef4444" isAnimationActive={false} strokeWidth={2} dot={false} />
-
-                                {upazilas.map((upz, idx) => (
-                                    <Line
-                                        key={upz}
-                                        type="monotone"
-                                        dataKey={upz}
-                                        name={upz}
-                                        stroke={chartColor(idx)}
-                                        dot={<BlinkingDot />}
-                                        strokeWidth={2}
-                                        connectNulls
-                                        isAnimationActive={false}
-                                    />
-                                ))}
-
-                                <Brush
-                                    dataKey="month"
-                                    height={40}
-                                    stroke="#6366f1"
-                                    travellerWidth={12}
-                                    fill="#eef2ff"
-                                    tickFormatter={val => val.slice(0, 3)}
-                                >
-                                    <LineChart data={chartSeriesData}>
-                                        <CartesianGrid strokeDasharray="2 2" strokeOpacity={0.2} />
-                                        <Line type="monotone" dataKey="threshold" stroke="#ef4444" dot={false} />
-                                        {upazilas.map((upz, idx) => (
-                                            <Line
-                                                key={upz}
-                                                type="monotone"
-                                                dataKey={upz}
-                                                name={upz}
-                                                stroke={chartColor(idx)}
-                                                dot={false}
-                                                strokeWidth={2}
-                                                connectNulls
-                                                isAnimationActive={false}
-                                            />
-                                        ))}
-                                    </LineChart>
-                                </Brush>
-
-                            </LineChart>
-
-                        </ResponsiveContainer>
-                    </div>
-
                 </div>
 
-                {/* <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+
+
+                {/* <div className=" bg-white border rounded shadow p-4">
+                    <ResponsiveContainer width="100%" height={320}>
+                        <LineChart data={chartSeriesData}>
+                            <CartesianGrid strokeDasharray="3 3" />
+                            <XAxis dataKey="month" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="threshold" stroke="#ef4444" isAnimationActive={false} strokeWidth={2} dot={false} />
+
+                            {upazilas.map((upz, idx) => (
+                                <Line
+                                    key={upz}
+                                    type="monotone"
+                                    dataKey={upz}
+                                    name={upz}
+                                    stroke={chartColor(idx)}
+                                    dot={<BlinkingDot />}
+                                    strokeWidth={2}
+                                    connectNulls
+                                    isAnimationActive={false}
+                                />
+                            ))}
+
+                            <Brush
+                                dataKey="month"
+                                height={40}
+                                stroke="#6366f1"
+                                travellerWidth={12}
+                                fill="#eef2ff"
+                                tickFormatter={val => val.slice(0, 3)}
+                            >
+                                <LineChart data={chartSeriesData}>
+                                    <CartesianGrid strokeDasharray="2 2" strokeOpacity={0.2} />
+                                    <Line type="monotone" dataKey="threshold" stroke="#ef4444" dot={false} />
+                                    {upazilas.map((upz, idx) => (
+                                        <Line
+                                            key={upz}
+                                            type="monotone"
+                                            dataKey={upz}
+                                            name={upz}
+                                            stroke={chartColor(idx)}
+                                            dot={false}
+                                            strokeWidth={2}
+                                            connectNulls
+                                            isAnimationActive={false}
+                                        />
+                                    ))}
+                                </LineChart>
+                            </Brush>
+
+                        </LineChart>
+
+                    </ResponsiveContainer>
+                </div> */}
+
+            </div>
+
+            {/* <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
                     {months.map((m, i) => (
                         <MapCard
                             key={`act-${i}`}
@@ -507,9 +669,8 @@ function Alert() {
 
 
 
-            </main>
             {alertModal && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/40">
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40">
                     {/* Modal Box */}
                     <div className="bg-white rounded-2xl shadow-xl w-[90%] max-w-2xl h-[80%] flex flex-col overflow-hidden animate-in fade-in duration-200">
 
@@ -745,14 +906,23 @@ function MonthPicker({ label, date, setDate }) {
     )
 }
 
-function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, actualMonth, type, threshold = 100 }) {
+function GeoJSONLayer({
+    geojson,
+    forecastResults,
+    forecastMonth,
+    actualData,
+    actualMonth,
+    type,
+    threshold = 100,
+    species
+}) {
     const map = useMap();
     const [zoom, setZoom] = useState(map.getZoom());
-
     const geoJsonRef = useRef(null);
     const labelsRef = useRef([]);
 
     useEffect(() => {
+        // Sync zoom state
         const handleZoom = () => setZoom(map.getZoom());
         map.on("zoomend", handleZoom);
         return () => map.off("zoomend", handleZoom);
@@ -760,7 +930,7 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
 
     function getActual(upaID) {
         if (!actualData || !actualMonth) return null;
-        const [year, monthNum] = actualMonth.split("-");
+        const [year, monthNum] = actualMonth.split('-');
         const monthName = monthNames[parseInt(monthNum, 10) - 1];
         return actualData.find(
             d =>
@@ -779,65 +949,95 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
         );
     }
 
-    // Find upazilas above threshold
+    function getPredictionAPI(upaID) {
+        if (!forecastResults) return null;
+        // console.log("Looking for:", upaID, "in", forecastResults);
+        return forecastResults.find(
+            res => String(res.upazila_id) === String(upaID)
+        );
+    }
+
+
+    function getCentroid(geometry) {
+        let coords = [];
+        if (geometry.type === "Polygon") coords = geometry.coordinates[0];
+        else if (geometry.type === "MultiPolygon") coords = geometry.coordinates[0][0];
+        if (!coords.length) return [0, 0];
+        let area = 0, cx = 0, cy = 0;
+        for (let i = 0, j = coords.length - 1; i < coords.length; j = i++) {
+            const [x0, y0] = coords[j], [x1, y1] = coords[i];
+            const f = x0 * y1 - x1 * y0;
+            area += f;
+            cx += (x0 + x1) * f;
+            cy += (y0 + y1) * f;
+        }
+        area /= 2;
+        cx /= 6 * area;
+        cy /= 6 * area;
+        return [cx, cy];
+    }
+
     const bips = useMemo(() => {
-        if (!geojson || !forecastResults) return [];
-        return geojson.features
-            .map((feature) => {
-                const upa = feature.properties.UPA_NAME;
-                const pred = forecastResults.find(res =>
-                    res.upa_name?.trim().toLowerCase() === upa?.trim().toLowerCase() &&
-                    res.forecast_month === forecastMonth
-                );
-                const cases = pred ? Number(pred.pred_cases) : 0;
-                if (cases > threshold && feature.geometry) {
-                    const centroid = getCentroid(feature.geometry);
-                    // Return [lat, lng]
-                    return { center: [centroid[1], centroid[0]], upa };
+        if (!geojson) return [];
+        return geojson.features.map(feature => {
+            const upa = feature.properties.UPA_NAME;
+            const upaID = feature.properties.UpazilaID;
+            let cases = null;
+            if (type === "forecast") {
+                const pred = getPredictionAPI(upaID);
+                cases = pred && pred.pred_cases !== undefined ? Number(pred.pred_cases) : 0;
+            } else if (type === "actual") {
+                const actual = getActual(upaID);
+                if (actual) {
+                    if (species === 'PV') cases = Number(actual.PV ?? 0);
+                    else if (species === 'PF') cases = Number(actual.PF ?? 0);
+                    else if (species === 'MIXED') cases = Number(actual.MIXED ?? 0);
                 }
-                return null;
-            })
-            .filter(Boolean);
-    }, [geojson, forecastResults, forecastMonth, threshold]);
+            }
+            if (cases > threshold && feature.geometry) {
+                const centroid = getCentroid(feature.geometry);
+                return { center: [centroid[1], centroid[0]], upa };
+            }
+            return null;
+        }).filter(Boolean);
+    }, [geojson, forecastResults, forecastMonth, actualData, actualMonth, type, threshold, species]);
 
 
-    // Build polygons + labels
+    // Remove all polygon/label layers before new draw
     useEffect(() => {
         if (!geojson) return;
 
-        // remove old polygons + labels
-        if (geoJsonRef.current) {
-            map.removeLayer(geoJsonRef.current);
-        }
-        labelsRef.current.forEach(m => map.removeLayer(m));
+        if (geoJsonRef.current) map.removeLayer(geoJsonRef.current);
+        labelsRef.current.forEach(marker => map.removeLayer(marker));
         labelsRef.current = [];
 
         const layer = L.geoJSON(geojson, {
             style: feature => {
                 const upaID = feature?.properties?.UpazilaID;
                 const upa = feature?.properties?.UPA_NAME;
-                let fillColor = "#eee";
                 let cases = null;
 
                 if (type === "forecast") {
-                    const pred = getPrediction(upa);
+                    const pred = getPredictionAPI(upaID);
                     if (pred && pred.pred_cases !== undefined) {
                         cases = Number(pred.pred_cases) || 0;
-                        fillColor =
-                            cases > threshold
-                                ? "#ef4444"
-                                : cases > 0.5 * threshold
-                                    ? "#fbbf24"
-                                    : "#22c55e";
                     }
                 } else if (type === "actual") {
                     const actual = getActual(upaID);
-                    if (actual && actual.CASEE !== undefined) {
-                        cases = Number(actual.CASEE) || 0;
-                        fillColor =
-                            cases > 100 ? "#ef4444" : cases > 50 ? "#fbbf24" : "#22c55e";
+                    if (actual) {
+                        if (species === "PV") cases = Number(actual.PV ?? 0);
+                        else if (species === "PF") cases = Number(actual.PF ?? 0);
+                        else if (species === "MIXED") cases = Number(actual.MIXED ?? 0);
                     }
                 }
+
+                let fillColor = "#cccccc";
+                if (cases >= 200) fillColor = "#bd0026";
+                else if (cases >= 100) fillColor = "#f03b20";
+                else if (cases >= 50) fillColor = "#fd8d3c";
+                else if (cases >= 11) fillColor = "#fecc5c";
+                else if (cases >= 1) fillColor = "#ffffb2";
+                // 0–10 stays #ffffb2
 
                 return {
                     color: "#000",
@@ -850,21 +1050,33 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
                 const upaID = feature?.properties?.UpazilaID;
                 const upa = feature?.properties?.UPA_NAME;
 
-                let html = `<div style="font-family: Arial, sans-serif; font-size: 11px; color: #333; max-width: 180px;">
-          <table style="border-collapse: collapse; width: 100%;">
-          <tr>
+                let cases = null;
+                if (type === "forecast") {
+                    const pred = getPredictionAPI(upaID);
+                    if (pred && pred.pred_cases !== undefined)
+                        cases = Math.round(pred.pred_cases);
+                } else if (type === "actual") {
+                    const actual = getActual(upaID);
+                    if (actual) {
+                        if (species === "PV") cases = Number(actual.PV ?? 0);
+                        else if (species === "PF") cases = Number(actual.PF ?? 0);
+                        else if (species === "MIXED") cases = Number(actual.MIXED ?? 0);
+                    }
+                }
+
+                // --- POPUP INFO ---
+                let html =
+                    `<div style="font-family: Arial, sans-serif; font-size: 11px; color: #333; max-width: 180px;">
+            <table style="border-collapse: collapse; width: 100%;">
+            <tr>
               <td style="padding: 2px 4px; font-weight: bold;">Upazila</td>
               <td style="padding: 2px 4px;">${upa || "Unknown"}</td>
-          </tr>`;
-
+            </tr>`;
                 if (type === "forecast") {
-                    const pred = getPrediction(upa);
+                    const pred = getPredictionAPI(upaID);
                     if (pred && pred.pred_cases !== undefined) {
                         html += `
-              <tr>
-                  <td style="padding: 2px 4px; font-weight: bold;">Month</td>
-                  <td style="padding: 2px 4px;">${pred.forecast_month}</td>
-              </tr>
+
               <tr>
                   <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
                   <td style="padding: 2px 4px;">${pred.pred_cases.toFixed(0)}</td>
@@ -878,25 +1090,21 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
                     }
                 } else if (type === "actual") {
                     const actual = getActual(upaID);
-                    if (actual && actual.CASEE !== undefined) {
+                    if (type === "actual" && actual) {
+                        let caseLabel = species === 'PV' ? 'PV Cases' : species === 'PF' ? 'PF Cases' : 'Mixed Cases';
+                        let speciesValue = species === 'PV' ? actual.PV : species === 'PF' ? actual.PF : actual.MIXED;
                         html += `
-              <tr>
-                  <td style="padding: 2px 4px; font-weight: bold;">Month</td>
-                  <td style="padding: 2px 4px;">${actual.ReportMonth} ${actual.ReportYear}</td>
-              </tr>
-              <tr>
-                  <td style="padding: 2px 4px; font-weight: bold;">Cases</td>
-                  <td style="padding: 2px 4px;">${actual.CASEE}</td>
-              </tr>
-              <tr>
-                  <td style="padding: 2px 4px;">Tests</td>
-                  <td style="padding: 2px 4px;">${actual.TEST}</td>
-              </tr>
-              <tr>
-                  <td style="padding: 2px 4px;">Deaths</td>
-                  <td style="padding: 2px 4px;">${actual.DEATH}</td>
-              </tr>`;
-                    } else {
+    <tr>
+      <td style="padding: 2px 4px; font-weight: bold;">Month</td>
+      <td style="padding: 2px 4px;">${actual.ReportMonth} ${actual.ReportYear}</td>
+    </tr>
+    <tr>
+      <td style="padding: 2px 4px; font-weight: bold;">${caseLabel}</td>
+      <td style="padding: 2px 4px;">${speciesValue}</td>
+    </tr>
+  `;
+                    }
+                    else {
                         html += `</table>
               <div style="margin-top: 2px; font-style: italic; color: #777;">
                 No actual data
@@ -904,68 +1112,61 @@ function GeoJSONLayer({ geojson, forecastResults, forecastMonth, actualData, act
             </div>`;
                     }
                 }
-
                 lyr.bindPopup(html);
 
-                // Forecast labels (only created once, toggled later)
-                if (type === "forecast" && forecastResults) {
-                    const pred = getPrediction(upa);
-                    if (pred && pred.pred_cases !== undefined) {
-                        const centroid = getCentroid(feature.geometry);
-                        const div = L.divIcon({
-                            html: `<div style="
-                background:rgba(255,255,255,.80);
-                border-radius:4px;
-                padding:1px 4px;
-                font-weight:bold;
-                font-size:${zoom >= 12 ? 12 : 10}px;
-                color:#111;
-                border:1px solid #999;
-                box-shadow:0 1px 3px #0002;
-              ">${Math.round(pred.pred_cases)}</div>`,
-                            iconSize: [30, 20],
-                            iconAnchor: [15, 10],
-                        });
-                        const labelMarker = L.marker([centroid[1], centroid[0]], {
-                            icon: div,
-                            interactive: false,
-                        });
-                        labelMarker.addTo(map);
-                        labelsRef.current.push(labelMarker);
-                    }
+                // --- ZOOM LABELS ---
+                if (cases !== null && zoom >= 9) {
+                    const centroid = getCentroid(feature.geometry);
+                    const div = L.divIcon({
+                        className: "",
+                        html: `<div style="
+        color:#fff;
+        font-size:13px;
+        font-weight:600;
+        text-shadow: 0 0 3px #000; /* makes white text readable */
+    ">
+      ${cases}
+    </div>`,
+                        iconAnchor: [0, 0], // anchor top-left so text isn’t misaligned
+                    });
+
+                    const marker = L.marker([centroid[1], centroid[0]], {
+                        icon: div,
+                        interactive: false,
+                    });
+                    marker.addTo(map);
+                    labelsRef.current.push(marker);
                 }
-            },
+            }
         });
 
         layer.addTo(map);
         geoJsonRef.current = layer;
+        if (geojson.features.length > 0) map.fitBounds(layer.getBounds());
 
-        if (geojson.features.length > 0) {
-            map.fitBounds(layer.getBounds());
-        }
+        return () => {
+            map.removeLayer(layer);
+            labelsRef.current.forEach(m => map.removeLayer(m));
+            labelsRef.current = [];
+        };
     }, [geojson, map, forecastResults, forecastMonth, actualData, actualMonth, type, threshold]);
 
-    // Toggle label visibility on zoom
+    // Toggle label marker visibility on zoom change
     useEffect(() => {
-        labelsRef.current.forEach(marker => {
-            if (zoom < 8) {
-                map.removeLayer(marker);
-            } else {
-                if (!map.hasLayer(marker)) {
-                    marker.addTo(map);
-                }
-            }
+        (labelsRef.current || []).forEach(marker => {
+            if (zoom < 9) map.removeLayer(marker);
+            else if (!map.hasLayer(marker)) marker.addTo(map);
         });
     }, [zoom, map]);
 
     return (
         <>
-            {type === "forecast" && bips.map((bip, i) => (
+            {bips.map((bip, i) => (
                 <BippingMarker
                     key={bip.upa + i}
                     center={bip.center}
                     color="#ef4444"
-                    size={28}
+                    size={32}
                     borderColor="#fff"
                     borderWidth={4}
                     zIndex={1400}
@@ -1099,7 +1300,8 @@ function MapCard({
     actualData,
     actualMonth,
     type,
-    threshold = 100
+    threshold = 100,
+    species
 }) {
     // NEW: Collapsed state, default open
     const [collapsed, setCollapsed] = useState(false);
@@ -1119,9 +1321,55 @@ function MapCard({
                 </button>
             </div>
             {!collapsed && (
-                <div className="h-[320px]">
-                    <MapContainer center={[23.81, 90.41]} zoom={7} className="h-full w-full" zoomControl={false}>
-                        <TileLayer url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png" />
+                <div className="h-56">
+                    <MapContainer center={[23.81, 90.41]} zoom={7} className="h-full w-full" >
+                        <div style={{
+                            position: "absolute", top: 6, right: 6, zIndex: 3001,
+                            background: "#fff", padding: "2px 6px", borderRadius: 6,
+                            boxShadow: "0 1px 4px #0001", fontSize: 10, lineHeight: 1.18, border: "1px solid #eee"
+                        }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#cccccc", marginRight: 3,
+                                    borderRadius: 2, border: "1px solid #bbb"
+                                }} /> 0
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#ffffb2", marginRight: 3,
+                                    borderRadius: 2, border: "1px solid #ddd"
+                                }} /> 1–10
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#fecc5c", marginRight: 3, borderRadius: 2
+                                }} /> 11–49
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#fd8d3c", marginRight: 3, borderRadius: 2
+                                }} /> 50–99
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#f03b20", marginRight: 3, borderRadius: 2
+                                }} /> 100–199
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#bd0026", marginRight: 3, borderRadius: 2
+                                }} /> 200+
+                            </div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 3, marginTop: 1 }}>
+                                <span style={{
+                                    display: "inline-block", width: 9, height: 9, background: "#bd0026",
+                                    borderRadius: "50%", boxShadow: "0 0 0 1px #fff", animation: "bip-pulse 1s infinite alternate"
+                                }} /> threshold
+                            </div>
+                        </div>
+
+
+                        <TileLayer url="https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png" />
                         {geojson && (
                             <GeoJSONLayer
                                 geojson={geojson}
@@ -1131,8 +1379,34 @@ function MapCard({
                                 actualMonth={type === 'actual' ? actualMonth : undefined}
                                 type={type}
                                 threshold={threshold}
+                                species={species}
                             />
                         )}
+                        {geojson && (
+                            <GeoJSONLayer
+                                geojson={geojson}
+                                forecastResults={type === 'forecast' ? forecastResults : undefined}
+                                forecastMonth={type === 'forecast' ? forecastMonth : undefined}
+                                actualData={type === 'actual' ? actualData : undefined}
+                                actualMonth={type === 'actual' ? actualMonth : undefined}
+                                type={type}
+                                threshold={threshold}
+                                species={species}
+                            />
+                        )}
+                        {geojson && (
+                            <GeoJSONLayer
+                                geojson={geojson}
+                                forecastResults={type === 'forecast' ? forecastResults : undefined}
+                                forecastMonth={type === 'forecast' ? forecastMonth : undefined}
+                                actualData={type === 'actual' ? actualData : undefined}
+                                actualMonth={type === 'actual' ? actualMonth : undefined}
+                                type={type}
+                                threshold={threshold}
+                                species={species}
+                            />
+                        )}
+
                     </MapContainer>
                 </div>
             )}
@@ -1221,7 +1495,7 @@ function SendMailOverlay() {
     return (
         <div style={{
             position: "fixed", top: 0, left: 0, width: "100vw", height: "100vh",
-            background: "rgba(0, 0, 0, 0.5)", zIndex: 9999,
+            background: "rgba(0, 0, 0, 0.5)", zIndex: 99999,
             display: "flex", alignItems: "center", justifyContent: "center",
             flexDirection: "column", transition: "opacity 0.3s ease-in-out"
         }}>
@@ -1237,6 +1511,49 @@ function SendMailOverlay() {
             }} />
         </div>
     );
+}
+
+function replaceOklchColors(root, fallback = "#cccccc") {
+    if (!root) return;
+    root.querySelectorAll("*").forEach((el) => {
+        ["backgroundColor", "color", "borderColor"].forEach(prop => {
+            // Get computed style
+            const computed = getComputedStyle(el)[prop];
+            if (computed && computed.startsWith("oklch(")) {
+                el.style[prop] = fallback;
+            }
+        });
+    });
+}
+
+async function downloadReport() {
+    const pdf = new jsPDF("p", "pt", "a4");
+
+    for (let i = 0; i < 3; i++) {
+        const mapBox = document.querySelectorAll(".h-56")[i];
+        const title = [
+            "Predicted PV case – August 2025",
+            "Predicted PF case – August 2025",
+            "Predicted MIXED case – August 2025"
+        ][i];
+
+        // Fix oklch colors before screenshot
+        replaceOklchColors(mapBox, "#cccccc");
+
+        // Draw title
+        if (i !== 0) pdf.addPage();
+        pdf.setFontSize(18);
+        pdf.text(title, 40, 40);
+
+        // Draw map
+        const canvas = await html2canvas(mapBox, { useCORS: true });
+        const imgData = canvas.toDataURL("image/png");
+        pdf.addImage(imgData, "PNG", 40, 60, 500, 250);
+
+        // (Optional) restore original styles if you want
+    }
+
+    pdf.save("malaria-prediction-report.pdf");
 }
 
 const styles = {

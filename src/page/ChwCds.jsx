@@ -48,6 +48,8 @@ function ChwCds() {
     const [showFilter, setShowFilter] = useState(false);
     const [mapFilterState, setMapFilterState] = useState({});
 
+    const [fetching, setFetching] = useState(false);
+
 
 
     console.log("alldata", allData);
@@ -710,6 +712,49 @@ function ChwCds() {
 
     console.log("Filtered data count:", filteredSubmissions.length);
 
+    async function handleGenerateReport() {
+        setFetching(true)
+        try {
+            const response = await axios.post(
+                'https://ewars-mails.onrender.com/generate-chw-xlsx',
+                {
+                    chwName: "Community Disease Surveillance",
+                    ward: (selectedWards || []).join(', '),
+                    union: (selectedUnions || []).join(', '),
+                    upazila: (selectedUpazilas || []).join(', '),
+                    district: (selectedDistricts || []).join(', '),
+                    submissions: filteredSubmissions
+                },
+                { responseType: 'blob' }
+            );
+
+            const href = URL.createObjectURL(new Blob([response.data]));
+            const a = document.createElement('a');
+            a.href = href;
+
+            const now = new Date();
+            const month = new Intl.DateTimeFormat('en', { month: 'long' }).format(now).toLowerCase();
+            const day = now.getDate();           // e.g., 22  (no leading zero)
+            const year = now.getFullYear();      // e.g., 2025
+            const stamp = `${day}_${month}_${year}`;
+
+            a.download = `CHW_Disease_Surveillance_Report_${stamp}.xlsx`;
+
+            document.body.appendChild(a);
+            a.click();
+            a.remove();
+            URL.revokeObjectURL(href);
+        } catch (err) {
+            const msg = err?.response
+                ? await err.response.data?.text?.() || err.response.statusText
+                : String(err);
+            console.error('Failed to download XLSX report:', msg);
+            alert('Failed to generate/download XLSX file.');
+        }
+        finally { setFetching(false) }
+    }
+
+
     return (
         <div className='md:mx-2 mb-8'>
             <div className="bg-blue-50 p-4 rounded-xl shadow-md mb-6">
@@ -859,6 +904,30 @@ function ChwCds() {
                         setSelected={handleDiseaseChange}
                         disabled={!selectedAreas.length}
                     />
+
+                    <button
+                        disabled={fetching}
+                        onClick={async () => {
+                            try {
+
+                                await handleGenerateReport(); // Await PDF generation, which auto-downloads
+
+                                toast.success("Download successful!");
+                            } catch (err) {
+
+                                toast.error("Download failed. Please try again.");
+                                console.error("PDF download failed:", err);
+                            }
+                        }}
+
+
+                        className="w-full bg-[#004bad]/80 cursor-pointer hover:bg-[#004bad] text-white font-semibold py-2 rounded flex items-center justify-center">
+                        {fetching ? (
+                            <div className="w-5 h-5 border-4 border-white border-t-transparent rounded-full animate-spin"></div>
+                        ) : (
+                            <span>Download report</span>
+                        )}
+                    </button>
 
                 </div>)}
 
@@ -1037,7 +1106,7 @@ function ChwCds() {
                 </div>
 
                 <PieCard
-                    title="Disaster in Last Week"
+                    title="Disaster Occurance "
                     data={metrics.disasterWeekPie}
                     colors={["#FF6361", "#005fbe", "#d9534f"]}
                     stat={`${metrics.disasterWeekPercent}%`}
