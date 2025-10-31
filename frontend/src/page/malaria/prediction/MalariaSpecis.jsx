@@ -177,31 +177,43 @@ export default function MalariaSpecies() {
             )
         );
 
-        axios
-            .get("/lmis/admin/mis-api-data")
+        fetch("/lmis-data.json")
             .then(res => {
-                const rawData = res.data;
+                if (!res.ok) {
+                    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+                }
+                return res.json();
+            })
+            .then(apiData => {
+                if (!Array.isArray(apiData)) {
+                    console.error("Local data file contains non-array data:", apiData);
+                    setActualData([]);
+                    toast?.error("Invalid data format in local file");
+                    return;
+                }
 
-                // Map UpazillaID -> UpazilaID for uniformity
-                const normalized = rawData.map(d => ({
+                const normalized = apiData.map(d => ({
                     ...d,
-                    UpazilaID: d.UpazilaID || d.UpazillaID // use either if present
+                    UpazilaID: d.UpazilaID || d.UpazillaID
                 }));
 
-                const allowedUpazilaIDs = new Set(
+                const allowedUpazilaIDsSet = new Set(
                     geoJson.features.map(f => String(f.properties?.UpazilaID))
                 );
 
                 const filtered = normalized.filter(d =>
-                    allowedUpazilaIDs.has(String(d.UpazilaID))
+                    allowedUpazilaIDsSet.has(String(d.UpazilaID))
                 );
 
                 setActualData(filtered);
+                if (filtered.length > 0) {
+                    toast?.success(`Successfully loaded ${filtered.length} malaria records`);
+                }
             })
-            .catch(e => {
+            .catch(error => {
+                console.error("Error loading local LMIS data:", error);
                 setActualData([]);
-                console.error("Failed to load LMIS malaria data", e);
-                toast?.error("Failed to load LMIS malaria data");
+                toast?.error("Failed to load local malaria data");
             });
     }, [geoJson]);
 
