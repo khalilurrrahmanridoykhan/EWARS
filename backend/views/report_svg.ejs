@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8" />
+  <title>Malaria Early Warning — <%= month %>
+  </title>
+  <style>
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      margin: 24px;
+      color: #111;
+    }
+
+    h1 {
+      text-align: center;
+      margin: 0 0 16px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+    }
+
+    .panel {
+      border: 1px solid #bbb;
+      border-radius: 6px;
+      padding: 8px;
+    }
+
+    .panel h3 {
+      margin: 0 0 6px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .map {
+      width: 100%;
+      height: 260px;
+      position: relative;
+    }
+
+    svg {
+      width: 100%;
+      height: 100%;
+    }
+
+    .legend {
+      position: absolute;
+      left: 2px;
+      bottom: 8px;
+      background: rgba(255, 255, 255, 0.95);
+      padding: 3px 4px;
+      font-size: 8px;
+      line-height: 14px;
+    }
+
+    .legend .row {
+      white-space: nowrap;
+    }
+
+    .swatch {
+      display: inline-block;
+      width: 16px;
+      height: 12px;
+      border: 1px solid #999;
+      margin-right: 6px;
+      vertical-align: middle;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 18px;
+      font-size: 12px;
+    }
+
+    th,
+    td {
+      border: 1px solid #aaa;
+      padding: 6px 8px;
+      text-align: center;
+    }
+
+    th {
+      background: #f5f5f5;
+    }
+
+    td.left {
+      text-align: left;
+    }
+
+    .risk-High {
+      background: #f44336;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .risk-Medium {
+      background: #ff9800;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .risk-Low {
+      background: #4caf50;
+      color: #fff;
+      font-weight: 600;
+    }
+
+    .predicted-div {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 2px;
+      /* small space between lines */
+      margin-bottom: 6px;
+      /* small space before the map */
+    }
+
+    .predicted-div p {
+      margin: 0;
+      /* remove default p margins */
+      line-height: 1.2;
+    }
+
+    .predicted-case {
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .predicted-month {
+      font-size: 12px;
+      color: #444;
+    }
+
+    footer {
+      font-size: 12px;
+      text-align: right;
+      margin-top: 25px;
+      color: #666;
+    }
+  </style>
+</head>
+
+<body>
+  <h2>Malaria Early Warning Report — <%= month %>
+  </h2>
+
+  <div class="grid">
+    <div class="panel">
+      <div class="predicted-div">
+        <p class="predicted-case">Predicted PV Cases</p>
+        <p class="predicted-month">
+          <%= month %>
+        </p>
+      </div>
+
+      <div id="mapPv" class="map">
+        <div class="legend">
+          <div class="row"><span class="swatch" style="background:#ccc"></span>0</div>
+          <div class="row"><span class="swatch" style="background:#ffffb2"></span>1–10</div>
+          <div class="row"><span class="swatch" style="background:#fecc5c"></span>11–49</div>
+          <div class="row"><span class="swatch" style="background:#fd8d3c"></span>50–99</div>
+          <div class="row"><span class="swatch" style="background:#f03b20"></span>100–199</div>
+          <div class="row"><span class="swatch" style="background:#bd0026"></span>200+</div>
+        </div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="predicted-div">
+        <p class="predicted-case">Predicted PF Cases</p>
+        <p class="predicted-month">
+          <%= month %>
+        </p>
+      </div>
+      <div id="mapPf" class="map"></div>
+    </div>
+    <div class="panel">
+      <div class="predicted-div">
+        <p class="predicted-case">Predicted MIXED Cases</p>
+        <p class="predicted-month">
+          <%= month %>
+        </p>
+      </div>
+      <div id="mapMixed" class="map"></div>
+    </div>
+  </div>
+
+  <table>
+    <thead>
+      <tr>
+        <th>District</th>
+        <th>Upazila</th>
+        <th>Pv</th>
+        <th>Pf</th>
+        <th>Mixed</th>
+        <th>Total</th>
+        <th>Risk</th>
+      </tr>
+    </thead>
+    <tbody>
+      <% (rows || []).forEach(function(r){ %>
+        <tr>
+          <td class="left">
+            <%= r.District %>
+          </td>
+          <td class="left">
+            <%= r.Upazila %>
+          </td>
+          <td>
+            <%= r.Pv %>
+          </td>
+          <td>
+            <%= r.Pf %>
+          </td>
+          <td>
+            <%= r.Mixed %>
+          </td>
+          <td>
+            <%= r.Case %>
+          </td>
+          <td class="risk-<%= r.RiskStatus %>">
+            <%= r.RiskStatus %>
+          </td>
+        </tr>
+        <% }) %>
+    </tbody>
+  </table>
+
+  <footer>This report is auto-generated from the National EWARS Dashboard.</footer>
+
+  <script>
+    // Data from server
+    const polygons = JSON.parse(`<%- polygonsJSON %>`);
+    const pvColors = JSON.parse(`<%- pvJSON %>`);
+    const pfColors = JSON.parse(`<%- pfJSON %>`);
+    const mixedColors = JSON.parse(`<%- mixedJSON %>`);
+
+    // Simple lon/lat -> screen transform (equirectangular-like, fit to box)
+    function computeBounds(geojson) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const f of geojson.features) {
+        const geom = f.geometry;
+        const list = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates; // MultiPolygon | Polygon
+        for (const poly of list) {
+          for (const ring of poly) {
+            for (const [x, y] of ring) {
+              if (x < minX) minX = x; if (x > maxX) maxX = x;
+              if (y < minY) minY = y; if (y > maxY) maxY = y;
+            }
+          }
+        }
+      }
+      return { minX, minY, maxX, maxY };
+    }
+
+    function makeProject(bounds, width, height, padding = 10) {
+      const spanX = bounds.maxX - bounds.minX;
+      const spanY = bounds.maxY - bounds.minY;
+      const sx = (width - 2 * padding) / spanX;
+      const sy = (height - 2 * padding) / spanY;
+      const s = Math.min(sx, sy);
+      const usedW = spanX * s;
+      const usedH = spanY * s;
+      // Center the map inside the box
+      const dx = (width - usedW) / 2 - bounds.minX * s;
+      const dy = (height - usedH) / 2 + bounds.maxY * s; // flip Y using maxY
+      return (lon, lat) => [lon * s + dx, -(lat) * s + dy];
+    }
+
+    function featurePath(feature, project) {
+      const geom = feature.geometry;
+      const polys = geom.type === 'Polygon' ? [geom.coordinates] : geom.coordinates;
+      let d = '';
+      for (const poly of polys) {
+        for (const ring of poly) {
+          ring.forEach(([lon, lat], i) => {
+            const [x, y] = project(lon, lat);
+            d += (i === 0 ? 'M' : 'L') + x + ',' + y;
+          });
+          d += 'Z';
+        }
+      }
+      return d;
+    }
+
+    function drawMap(containerId, colors) {
+      const el = document.getElementById(containerId);
+      const width = el.clientWidth;
+      const height = el.clientHeight;
+      const bounds = computeBounds(polygons);
+      const project = makeProject(bounds, width, height, 10);
+      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+      svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+
+      for (const f of polygons.features) {
+        const id = f.properties.UpazilaID || f.properties.upazila_id;
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', featurePath(f, project));
+        path.setAttribute('fill', colors[id] || '#ccc');
+        path.setAttribute('stroke', '#333');
+        path.setAttribute('stroke-width', '0.6');
+        svg.appendChild(path);
+      }
+      el.appendChild(svg);
+    }
+
+    drawMap('mapPv', pvColors);
+    drawMap('mapPf', pfColors);
+    drawMap('mapMixed', mixedColors);
+  </script>
+</body>
+
+</html>

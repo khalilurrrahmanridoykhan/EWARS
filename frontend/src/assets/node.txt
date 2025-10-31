@@ -1,0 +1,483 @@
+require('dotenv').config();
+const express = require('express');
+const nodemailer = require('nodemailer');
+const cors = require('cors');
+
+const { createCanvas } = require('canvas');
+const d3 = require('d3-geo');
+const scale = require('d3-scale');
+const PDFDocument = require('pdfkit');
+const path = require('path');
+const fs = require('fs');
+const ejs = require('ejs');
+const puppeteer = require('puppeteer');
+const ExcelJS = require('exceljs');
+
+
+
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: "20mb" }));
+
+
+const STATIC_EMAILS = [
+    "email1@example.com",
+    "email2@example.com",
+    "email3@example.com",
+    "email4@example.com",
+    "email5@example.com"
+];
+
+const transporter = nodemailer.createTransport({
+    service: 'gmail',
+    auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
+    tls: { rejectUnauthorized: false }
+});
+
+// POST /send-alert
+app.post('/send-alert', async (req, res) => {
+    const {
+        subject = 'Prediction Alert',
+        body = 'Prediction Alert Body',
+        emails
+    } = req.body;
+
+    const recipients = Array.isArray(emails) && emails.length > 0 ? emails : STATIC_EMAILS;
+
+    try {
+        await transporter.sendMail({
+            from: `"CDS EWARS alert" <${process.env.EMAIL_USER}>`,
+            to: recipients.join(','),
+            subject,
+            html: body // can be plain string or HTML
+        });
+        res.json({ success: true, message: `Alert sent to: ${recipients.join(", ")}` });
+    } catch (err) {
+        console.error('SendMail error', err);
+        res.status(500).json({ success: false, message: 'Failed to send alert', error: err.message });
+    }
+});
+
+
+// Alternate: HTML -> PDF using inline SVG maps (no external libs)
+app.post("/generate-report-inline", async (req, res) => {
+    try {
+        const { month, predictions, regionGeojson } = req.body;
+        if (!predictions || !Array.isArray(predictions)) {
+            return res.status(400).send("Invalid data");
+        }
+
+        // Build UpazilaID -> properties index from GeoJSON
+        const idToProps = {};
+        try {
+            (regionGeojson?.features || []).forEach((f) => {
+                const id = f?.properties?.UpazilaID ?? f?.properties?.upazila_id;
+                if (id != null) idToProps[id] = f.properties || {};
+            });
+        } catch (_) { }
+
+        const byType = (t) => predictions.filter((p) => p.type === t);
+        const pv = byType("PV");
+        const pf = byType("PF");
+        const mixed = byType("MIXED");
+
+        // Discrete color bins by absolute case count
+        const colorFromCount = (c) => {
+            if (!c || c <= 0) return "#ccc";        // 0
+            if (c <= 10) return "#ffffb2";         // 1–10
+            if (c <= 49) return "#fecc5c";         // 11–49
+            if (c <= 99) return "#fd8d3c";         // 50–99
+            if (c <= 199) return "#f03b20";        // 100–199
+            return "#bd0026";                      // 200+
+        };
+
+        const makeColorMap = (arr) => {
+            const map = {};
+            arr.forEach((p) => {
+                const id = Number(p.upazila_id ?? p.UpazilaID ?? p.upazilaid);
+                const c = Number(p.pred_cases ?? p.predcases) || 0;
+                if (!Number.isFinite(id)) return;
+                map[id] = colorFromCount(c);
+            });
+            return map;
+        };
+
+        const maps = { pv: makeColorMap(pv), pf: makeColorMap(pf), mixed: makeColorMap(mixed) };
+
+        // Table rows
+        const rows = {};
+        predictions.forEach((p) => {
+            const id = Number(p.upazila_id ?? p.UpazilaID ?? p.upazilaid);
+            if (!Number.isFinite(id)) return;
+            if (!rows[id]) {
+                const props = idToProps[id] || {};
+                rows[id] = {
+                    UpazilaID: id,
+                    District: props.DIS_NAME || "-",
+                    Upazila: props.UPA_NAME || String(id),
+                    Pv: 0,
+                    Pf: 0,
+                    Mixed: 0,
+                };
+            }
+            if (p.type === "PV") rows[id].Pv = Number(p.pred_cases) || 0;
+            if (p.type === "PF") rows[id].Pf = Number(p.pred_cases) || 0;
+            if (p.type === "MIXED") rows[id].Mixed = Number(p.pred_cases) || 0;
+        });
+        const table = Object.values(rows).map((r) => ({
+            ...r,
+            Case: r.Pv + r.Pf + r.Mixed,
+            RiskStatus: r.Pv + r.Pf + r.Mixed > 150 ? "High" : (r.Pv + r.Pf + r.Mixed > 75 ? "Medium" : "Low"),
+        })).sort((a, b) => a.Upazila.localeCompare(b.Upazila));
+
+        const html = await ejs.renderFile(
+            path.join(process.cwd(), "views", "report_svg.ejs"),
+            {
+                month: new Date(month).toLocaleString("default", { month: "long", year: "numeric" }),
+                polygonsJSON: JSON.stringify(regionGeojson),
+                pvJSON: JSON.stringify(maps.pv),
+                pfJSON: JSON.stringify(maps.pf),
+                mixedJSON: JSON.stringify(maps.mixed),
+                rows: table,
+            }
+        );
+
+        const browser = await puppeteer.launch({ args: ["--no-sandbox", "--disable-setuid-sandbox"] });
+        const page = await browser.newPage();
+        await page.setContent(html, { waitUntil: "load" });
+        const pdfBuffer = await page.pdf({ format: "A4", printBackground: true });
+        await browser.close();
+
+        // res.set({
+        //     "Content-Type": "application/pdf",
+        //     "Content-Disposition": "attachment; filename=malaria_ewars_report.pdf",
+        // });
+        //testign
+        res.set({
+            "Content-Type": "application/pdf",
+            "Content-Disposition": "inline; filename=malaria_ewars_report.pdf",
+        });
+        res.send(pdfBuffer);
+    } catch (err) {
+        console.error(err);
+        res.status(500).send("Failed to generate PDF");
+    }
+});
+
+
+
+
+// XLSX
+
+// app.post('/generate-chw-xlsx', async (req, res) => {
+//     try {
+//         const {
+//             chwName = '',
+//             ward = '',
+//             union = '',
+//             upazila = '',
+//             district = '',
+//             submissions = [] // (optional; you can ignore if you only want a blank template)
+//         } = req.body || {};
+
+//         // If client sends arrays, make them readable
+//         const toLabel = v => Array.isArray(v) ? v.join(', ') : (v || '');
+
+//         const indicators = [
+//             "Number of the suspected dengue cases",
+//             "Number of the suspected malaria cases",
+//             "Number of the AWD cases",
+//             "Number of the suspected dengue cases Referred",
+//             "Number of the AWD cases Referred",
+//             "Number of the suspected malaria cases Referred",
+//             "Total number of the Referral to UHC (Dengue, Malaria, AWD)",
+//             "Total number of the Referral to District (Dengue, Malaria, AWD)",
+//             "Total number of the Referral to Medical College Hospital (Dengue, Malaria, AWD)",
+//             "Total number of referral to BRAC (Dengue, Malaria, AWD)",
+//             "Total No. of already diagnosed cases of Dengue in HH",
+//             "Total No. of already diagnosed cases of Malaria in HH",
+//             "Total No. of already diagnosed cases of AWD in HH",
+//             "Total Number of suspected individual using Bednet",
+//             "Total Number of suspected individual having Hand-washing practice",
+//             "Total Number of suspected individual having Safe Sanitation practice",
+//             "Total Number of HH (surrounding areas) having stagnant water/ mosquito breeding sites",
+//             "Total Number of HH (surrounding areas) having Mosquito Larvae (Aedes)",
+//             "Total Number of HH (surrounding areas) having Mosquito Larvae (Anophilis)",
+//             "Areas experienced Flood/Cyclone/Any disaster event (within reported week)"
+//         ];
+
+//         const wb = new ExcelJS.Workbook();
+//         const ws = wb.addWorksheet('CHW Surveillance', { views: [{ showGridLines: true }] });
+
+//         // Title (merged)
+//         ws.mergeCells('A1:G1');
+//         ws.getCell('A1').value = 'CHW Recording Format for Community Disease Surveillance';
+//         ws.getCell('A1').font = { bold: true, size: 14 };
+//         ws.getCell('A1').alignment = { vertical: 'middle', horizontal: 'center' };
+
+//         // Header lines
+//         ws.addRow([]);
+//         ws.addRow([`Name of CHW: ${chwName}`]);
+
+//         const rowMeta = ws.addRow([
+//             `Ward: ${toLabel(ward)}`,
+//             '', `Union: ${toLabel(union)}`,
+//             '', `Upazila: ${toLabel(upazila)}`,
+//             `District: ${toLabel(district)}`
+//         ]);
+//         // Make the labels a bit bold
+//         ['A3', 'C3', 'E3', 'G3'].forEach(a => ws.getCell(a).font = { bold: true });
+
+//         ws.addRow([]); // spacer
+
+//         // Table header
+//         const header = ["Sl No", "Indicators", "Total", "Male", "Female", "Pregnant women", "U5 Children"];
+//         const hdrRow = ws.addRow(header);
+//         hdrRow.font = { bold: true };
+//         hdrRow.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+//         hdrRow.height = 22;
+
+//         // Rows
+//         indicators.forEach((label, i) => {
+//             ws.addRow([i + 1, label, '', '', '', '', '']);
+//         });
+
+//         // Borders for table
+//         const startRow = hdrRow.number;
+//         const endRow = startRow + indicators.length;
+//         for (let r = startRow; r <= endRow; r++) {
+//             for (let c = 1; c <= 7; c++) {
+//                 const cell = ws.getRow(r).getCell(c);
+//                 cell.alignment = { horizontal: c === 2 ? 'left' : 'center', vertical: 'middle', wrapText: true };
+//                 cell.border = {
+//                     top: { style: 'thin' },
+//                     left: { style: 'thin' },
+//                     bottom: { style: 'thin' },
+//                     right: { style: 'thin' }
+//                 };
+//             }
+//         }
+
+//         // Column widths
+//         ws.getColumn(1).width = 6;    // Sl No
+//         ws.getColumn(2).width = 70;   // Indicators
+//         ws.getColumn(3).width = 12;   // Total
+//         ws.getColumn(4).width = 12;   // Male
+//         ws.getColumn(5).width = 12;   // Female
+//         ws.getColumn(6).width = 16;   // Pregnant women
+//         ws.getColumn(7).width = 14;   // U5 Children
+
+//         // Stream to client
+//         res.setHeader('Content-Type',
+//             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+//         res.setHeader('Content-Disposition',
+//             'attachment; filename=CHW_Recording_Format.xlsx');
+
+//         await wb.xlsx.write(res);
+//         res.end();
+//     } catch (err) {
+//         console.error(err);
+//         res.status(500).send('Failed to generate XLSX report');
+//     }
+// });
+
+app.post('/generate-chw-xlsx', async (req, res) => {
+    try {
+        const {
+            chwName = '',
+            ward = '',
+            union = '',
+            upazila = '',
+            district = '',
+            submissions = []
+        } = req.body || {};
+
+        // ---------- NORMALIZERS ----------
+        const toList = v => Array.isArray(v) ? v : (v ? String(v).split(/[,\s]+/).filter(Boolean) : []);
+        const isYes = v => String(v || '').trim().toLowerCase() === 'yes';
+        const num = v => {
+            const x = Number(v);
+            return Number.isFinite(x) ? x : null;
+        };
+        const eqi = (a, b) => String(a || '').trim().toLowerCase() === String(b || '').trim().toLowerCase();
+        const inc = (s, kw) => String(s || '').toLowerCase().includes(String(kw).toLowerCase());
+
+        // unify govt/BRAC/private + facility type text
+        const normalizeFacility = (raw) => {
+            const v = String(raw || '').toLowerCase();
+            if (!v) return '';
+            if (inc(v, 'uhc')) return 'UHC';
+            if (inc(v, 'district')) return 'District';
+            if (inc(v, 'medical') || inc(v, 'mc') || inc(v, 'college')) return 'Medical College Hospital';
+            return v; // fallback
+        };
+
+        // convert one submission to the shape we aggregate on
+        const N = submissions.map(s => {
+            const diseaseArr = Array.isArray(s.disease) ? s.disease : toList(s.disease);
+            return {
+                disease: diseaseArr.map(x => String(x).trim()),
+                suspected: isYes(s.suspectedinthedisease),
+                sex: String(s.sex || '').toLowerCase(),           // 'male','female', or ''
+                preg: isYes(s.preg),
+                age: num(s.age),
+                referred: isYes(s.referred || s.referred_new),
+                referralPlace: normalizeFacility(s.ifreferredtogovt || s.referralplace || s.referral_place || ''),
+                organization: String(s.organization || '').toLowerCase(), // 'govt','brac','private'
+                bednet: isYes(s.bednetusepracticeduringsleep),
+                handwash: isYes(s.handwashingpracticewithsoapwater),
+                sanitation: String(s.typelatrineuse || ''),      // any non-empty counts as “has sanitation type”
+                stagnant: isYes(s.presenceofstagnantwatermosquitobreedingsites),
+                larvae: String(s.presenceofmosquitolarvae || '').toLowerCase(), // 'yes' | 'aedes' | 'anophilis' | 'no'
+                disasterWeek: isYes(s.didanydisasteroccurinlast7days),
+                // already-diagnosed (numbers in HH)
+                diag_dengue: num(s.noofalreadydiagnosedcasesofdengueinthehh) || 0,
+                diag_malaria: num(s.noofalreadydiagnosedcasesofmalariainthehh) || 0,
+                diag_awd: num(s.noofalreadydiagnosedcasesofawdinthehh) || 0,
+            };
+        });
+
+        // ---------- HELPERS ----------
+        const hasDisease = name => r => r.suspected && r.disease.some(d => eqi(d, name));
+        const count = (pred, extra = () => true) => N.filter(x => pred(x) && extra(x)).length;
+
+        // generic cell packer
+        const pack = (pred) => ({
+            total: count(pred),
+            male: count(pred, x => x.sex === 'male'),
+            female: count(pred, x => x.sex === 'female'),
+            preg: count(pred, x => x.preg),
+            u5: count(pred, x => x.age !== null && x.age < 5),
+        });
+
+        // facility filters (referrals)
+        const toUHC = r => r.referred && r.referralPlace === 'UHC';
+        const toDist = r => r.referred && r.referralPlace === 'District';
+        const toMCH = r => r.referred && r.referralPlace === 'Medical College Hospital';
+        const toBRAC = r => r.referred && r.organization === 'brac';
+
+        // larvae breakdown
+        const larvaeAedes = r => r.larvae === 'aedes' || (r.larvae === 'yes' && inc(r.referralPlace, 'aedes'));
+        const larvaeAnophilis = r => r.larvae === 'anophilis';
+
+        // sanitation: treat any non-empty value as “has safe sanitation practice”
+        const hasSanitation = r => !!r.sanitation;
+
+        // ---------- INDICATORS WITH CALCULATIONS ----------
+        const rows = [
+            { label: "Number of the suspected dengue cases", calc: pack(hasDisease('dengue')) },
+            { label: "Number of the suspected malaria cases", calc: pack(hasDisease('malaria')) },
+            { label: "Number of the AWD cases", calc: pack(hasDisease('awd')) },
+
+            { label: "Number of the suspected dengue cases Referred", calc: pack(r => hasDisease('dengue')(r) && r.referred) },
+            { label: "Number of the AWD cases Referred", calc: pack(r => hasDisease('awd')(r) && r.referred) },
+            { label: "Number of the suspected malaria cases Referred", calc: pack(r => hasDisease('malaria')(r) && r.referred) },
+
+            { label: "Total number of the Referral to UHC (Dengue, Malaria, AWD)", calc: pack(toUHC) },
+            { label: "Total number of the Referral to District (Dengue, Malaria, AWD)", calc: pack(toDist) },
+            { label: "Total number of the Referral to Medical College Hospital (Dengue, Malaria, AWD)", calc: pack(toMCH) },
+            { label: "Total number of referral to BRAC (Dengue, Malaria, AWD)", calc: pack(toBRAC) },
+
+            // already diagnosed in HH (no sex/preg/u5 split—keep only total)
+            { label: "Total No. of already diagnosed cases of Dengue in HH", calc: { total: N.reduce((a, b) => a + (b.diag_dengue || 0), 0), male: 0, female: 0, preg: 0, u5: 0 } },
+            { label: "Total No. of already diagnosed cases of Malaria in HH", calc: { total: N.reduce((a, b) => a + (b.diag_malaria || 0), 0), male: 0, female: 0, preg: 0, u5: 0 } },
+            { label: "Total No. of already diagnosed cases of AWD in HH", calc: { total: N.reduce((a, b) => a + (b.diag_awd || 0), 0), male: 0, female: 0, preg: 0, u5: 0 } },
+
+            { label: "Total Number of suspected individual using Bednet", calc: pack(r => r.bednet) },
+            { label: "Total Number of suspected individual having Hand-washing practice", calc: pack(r => r.handwash) },
+            { label: "Total Number of suspected individual having Safe Sanitation practice", calc: pack(hasSanitation) },
+
+            { label: "Total Number of HH (surrounding areas) having stagnant water/ mosquito breeding sites", calc: { total: count(r => r.stagnant), male: 0, female: 0, preg: 0, u5: 0 } },
+            { label: "Total Number of HH (surrounding areas) having Mosquito Larvae (Aedes)", calc: { total: count(larvaeAedes), male: 0, female: 0, preg: 0, u5: 0 } },
+            { label: "Total Number of HH (surrounding areas) having Mosquito Larvae (Anophilis)", calc: { total: count(larvaeAnophilis), male: 0, female: 0, preg: 0, u5: 0 } },
+
+            { label: "Areas experienced Flood/Cyclone/Any disaster event (within reported week)", calc: { total: count(r => r.disasterWeek), male: 0, female: 0, preg: 0, u5: 0 } },
+        ];
+
+        // ---------- EXCEL ----------
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('CHW Surveillance', { views: [{ showGridLines: true }] });
+
+        ws.mergeCells('A1:G1');
+        ws.getCell('A1').value = 'CHW Recording Format for Community Disease Surveillance';
+        ws.getCell('A1').font = { bold: true, size: 14 };
+        ws.getCell('A1').alignment = { vertical: 'middle', horizontal: 'center' };
+
+        ws.addRow([]);
+        ws.addRow([`Name of CHW: ${chwName}`]);
+        ws.addRow([
+            `Ward: ${Array.isArray(ward) ? ward.join(', ') : ward}`,
+            '',
+            `Union: ${Array.isArray(union) ? union.join(', ') : union}`,
+            '',
+            `Upazila: ${Array.isArray(upazila) ? upazila.join(', ') : upazila}`,
+            `District: ${Array.isArray(district) ? district.join(', ') : district}`
+        ]);
+        ['A3', 'C3', 'E3', 'G3'].forEach(a => ws.getCell(a).font = { bold: true });
+
+        ws.addRow([]);
+
+        const header = ["Sl No", "Indicators", "Total", "Male", "Female", "Pregnant women", "U5 Children"];
+        const hdr = ws.addRow(header);
+        hdr.font = { bold: true };
+        hdr.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+        hdr.height = 22;
+
+        rows.forEach((r, i) => {
+            ws.addRow([
+                i + 1,
+                r.label,
+                r.calc.total || 0,
+                r.calc.male || 0,
+                r.calc.female || 0,
+                r.calc.preg || 0,
+                r.calc.u5 || 0
+            ]);
+        });
+
+        // borders + widths
+        const start = hdr.number, end = start + rows.length;
+        for (let r = start; r <= end; r++) {
+            for (let c = 1; c <= 7; c++) {
+                const cell = ws.getRow(r).getCell(c);
+                cell.alignment = { horizontal: c === 2 ? 'left' : 'center', vertical: 'middle', wrapText: true };
+                cell.border = { top: { style: 'thin' }, left: { style: 'thin' }, bottom: { style: 'thin' }, right: { style: 'thin' } };
+            }
+        }
+        ws.getColumn(1).width = 6;
+        ws.getColumn(2).width = 70;
+        ws.getColumn(3).width = 12;
+        ws.getColumn(4).width = 12;
+        ws.getColumn(5).width = 12;
+        ws.getColumn(6).width = 16;
+        ws.getColumn(7).width = 14;
+
+        // stream to client
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', 'attachment; filename=CHW_Disease_Surveillance_Report.xlsx');
+        await wb.xlsx.write(res);
+        res.end();
+    } catch (err) {
+        console.error(err);
+        res.status(500).send('Failed to generate XLSX report');
+    }
+});
+
+
+
+app.get('/', (req, res) => res.send('Alert mailer is running!'));
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => console.log(`Alert mailer running on port ${PORT}`));
+
+
+
+function getColor(ratio) {
+    if (ratio >= 0.8) return "#bd0026";
+    if (ratio >= 0.6) return "#f03b20";
+    if (ratio >= 0.4) return "#fd8d3c";
+    if (ratio >= 0.2) return "#fecc5c";
+    if (ratio > 0) return "#ffffb2";
+    return "#ccc";
+}

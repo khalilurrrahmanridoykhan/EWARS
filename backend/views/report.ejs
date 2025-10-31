@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <title>Malaria Report — <%= month %>
+    </title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+        }
+
+        .maps {
+            display: flex;
+            gap: 20px;
+            justify-content: space-around;
+        }
+
+        .map-box {
+            flex: 1 1 30%;
+            min-width: 280px;
+            height: 350px;
+            border: 1px solid #ccc;
+            border-radius: 6px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .map-label {
+            position: absolute;
+            top: 8px;
+            left: 8px;
+            background: #fff;
+            font-size: 12px;
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: 1px solid #ccc;
+        }
+
+        .leaflet-container {
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <h1 style="text-align:center;">Malaria Early Warning Report — <%= month %>
+    </h1>
+    <div class="maps">
+        <div id="mapPv" class="map-box">
+            <div class="map-label">Predicted Pv Cases</div>
+        </div>
+        <div id="mapPf" class="map-box">
+            <div class="map-label">Predicted Pf Cases</div>
+        </div>
+        <div id="mapMixed" class="map-box">
+            <div class="map-label">Predicted Mixed Cases</div>
+        </div>
+    </div>
+    <script>
+        const polygons = JSON.parse(`<%- polygonsJSON %>`);
+        const pvColors = JSON.parse(`<%- pvJSON %>`);
+        const pfColors = JSON.parse(`<%- pfJSON %>`);
+        const mixedColors = JSON.parse(`<%- mixedJSON %>`);
+
+        function getUpazilaID(f) { return f.properties.UpazilaID || f.properties.upazilaid; }
+        function makeStyle(colors) {
+            return f => ({
+                color: "#333",
+                weight: 1,
+                fillColor: colors[getUpazilaID(f)] || "#ccc",
+                fillOpacity: 0.7
+            });
+        }
+        function renderMap(divId, colors) {
+            const map = L.map(divId, { zoomControl: false }).setView([23.5, 91.2], 7);
+            // If using PDFkit with no internet, comment this out or host your own tile server:
+            L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "" }).addTo(map);
+            L.geoJSON(polygons, {
+                style: makeStyle(colors),
+                onEachFeature: (f, l) => {
+                    l.bindPopup(`<b>${getUpazilaID(f)}</b>`);
+                }
+            }).addTo(map);
+        }
+        renderMap("mapPv", pvColors);
+        renderMap("mapPf", pfColors);
+        renderMap("mapMixed", mixedColors);
+
+        // Debug output—for testing inside browser or Puppeteer
+        console.log("Polygon features:", polygons);
+        console.log("Pv colors:", pvColors);
+        console.log("Pf colors:", pfColors);
+        console.log("Mixed colors:", mixedColors);
+    </script>
+</body>
+
+</html>

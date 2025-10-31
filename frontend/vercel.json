@@ -1,0 +1,24 @@
+{
+  "rewrites": [
+    {
+      "source": "/models/(.*)",
+      "destination": "http://api2.commicplan.com/models/$1"
+    },
+    {
+      "source": "/api/(.*)",
+      "destination": "http://api1.commicplan.com/$1"
+    },
+    {
+      "source": "/lmis/(.*)",
+      "destination": "https://lmis.nmcp.gov.bd/$1"
+    },
+    {
+      "source": "/predict/(.*)",
+      "destination": "https://api3.commicplan.com/predict/$1"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}
